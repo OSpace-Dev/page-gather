@@ -30,11 +30,12 @@ export async function parseArgs(args) {
 export function requestWorker(request, socketPath = process.env.PAGE_GATHER_SOCKET || '/run/page-gather/control.sock', timeout = 55000) {
   return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath); let input = '';
+    socket.setEncoding('utf8');
     const timer = setTimeout(() => { socket.destroy(); reject(new Error('WORKER_TIMEOUT')); }, timeout);
     const finish = () => clearTimeout(timer);
     socket.once('connect', () => socket.write(JSON.stringify(request) + '\n'));
     socket.on('data', chunk => {
-      input += chunk.toString();
+      input += chunk;
       if (input.length > 65536) { finish(); socket.destroy(); reject(new Error('RESPONSE_TOO_LARGE')); return; }
       if (!input.includes('\n')) return;
       finish(); socket.destroy();

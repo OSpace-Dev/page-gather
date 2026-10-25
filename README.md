@@ -2,11 +2,13 @@
 
 个人网站采集项目，采用真实有界面 Google Chrome 与直接 CDP，复用用户在该浏览器手动登录的持久目录。不会保证防检测或不封号。
 
-**阶段：P0 设计基线已保留；P1 最小代码已实现、本地无 Chrome 测试通过，容器和真实站点验收待完成。P2–P5 未实现。** 当前没有中心服务、Web 管理端、每日调度、业务采集插件、入库或推送，不会默认访问真实站点或自动点击。
+**阶段：P1 开发代码、开发环境真实 Chrome 合成验收及 Reviewer 完整评审已通过；用户服务器、人工 noVNC UI 和真实站点验收待用户完成。P2–P5 未实现。** 当前没有中心服务、Web 管理端、每日调度、业务采集插件、入库或推送，不会默认访问真实站点或自动点击。
 
 ## P1 快速入口
 
 - [P1 中文使用说明](docs/P1-usage.md)：amd64 容器构建、人工 noVNC、显式 CLI、持久化、安全边界和验收步骤。
+- [P1 服务器部署手册](docs/P1-deployment.md)：由用户亲自部署，复用现有设施，不涉及远程代部署。
+- [P1 开发评审记录](docs/reviews/p1-development-review.md)：完整评审、问题修复和最终复审结论。
 - [P1 验证记录](docs/P1-verification.md)：准确区分已验证、静态检查、待验证和限制。
 - `infra/browser/Dockerfile`、`compose.yaml`：Chrome/Xvfb/Openbox/VNC/noVNC/Node 同容器，非 root，CDP 仅容器 loopback，noVNC 只发布宿主 loopback。
 - `apps/worker/src/`：原生 WebSocket CDP SDK、互斥控制器、进程监督与显式 CLI。零第三方 npm 依赖。
@@ -16,7 +18,7 @@ npm ci --ignore-scripts
 npm run check
 ```
 
-需 Node 24；Docker 启动需明确指定可用的完整 Chrome deb 版本，详见使用说明。当前开发环境无 Docker，**没有声称容器构建、沙箱、远程桌面或真实登录已验证**。
+需 Node 24；Docker 启动需明确指定可用的完整 Chrome deb 版本，详见使用说明。开发环境允许使用 WSL 内 Docker；容器、沙箱及远程桌面的实际验证结果见验证记录。真实服务器由用户亲自部署，真实账号登录只能由用户验证。
 
 ## 设计文档
 

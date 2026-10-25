@@ -66,6 +66,24 @@ test('POSIX 真实组长退出后仍回收同组后代', { skip: process.platfor
   } finally { groups.signal(child, 'SIGKILL'); }
 });
 
+for (const failed of [false, true]) test(`停机先封闭门禁并等待正常关闭，关闭${failed ? '失败仍清理并报错' : '成功后回收后代'}`, async () => {
+  const { groups, signals } = fakeGroups(); const admission = new Admission();
+  groups.launch('fixture', [], false);
+  const closing = deferred();
+  const pending = quiesce({ groups, admission, beforeStop: async () => {
+    assert.equal(admission.closed, true);
+    assert.equal(groups.closed, true);
+    await closing.promise;
+    if (failed) throw new Error('CHROME_CLOSE_TIMEOUT');
+  } });
+  const checked = failed ? assert.rejects(pending, /SHUTDOWN_FAILED/) : pending;
+  await turn();
+  assert.deepEqual(signals, []);
+  closing.resolve(); await checked;
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+  assert.equal(groups.processes.size, 0);
+});
+
 test('noVNC 白名单只接受显式精确 HTTP(S) origin，不接受通配/路径/null', () => {
   assert.deepEqual([...parseOrigins()], ['http://127.0.0.1:6080']);
   assert.equal(parseOrigins('http://localhost:6080,https://example.invalid').size, 2);

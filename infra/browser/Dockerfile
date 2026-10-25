@@ -23,7 +23,9 @@ COPY package.json package-lock.json ./
 COPY scripts/check-dependencies.js ./scripts/
 RUN npm ci --ignore-scripts --omit=dev && npm run check:deps
 COPY apps/worker ./apps/worker
-RUN mkdir -p /data/profiles/main /data/spool /data/artifacts /run/page-gather \
+RUN mkdir -p /tmp/.X11-unix \
+    && chown root:root /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix \
+    && mkdir -p /data/profiles/main /data/spool /data/artifacts /run/page-gather \
     && chown -R node:node /data /run/page-gather
 ENV DISPLAY=:99 HOME=/home/node PAGE_GATHER_SOCKET=/run/page-gather/control.sock
 USER node

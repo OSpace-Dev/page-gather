@@ -10,6 +10,8 @@ services:
     shm_size: 512mb
     stop_grace_period: 30s
     restart: "no"
+    security_opt:
+      - seccomp=./infra/browser/seccomp/chrome-userns-amd64.json
     environment:
       DISPLAY: :99
     ports:
@@ -18,6 +20,7 @@ services:
       - profiles:/data/profiles
       - spool:/data/spool
       - artifacts:/data/artifacts
+    # 仅本项目使用基于 Moby v28.3.3 的受限 userns profile，依据见 infra/browser/seccomp/README.md。
     # 不映射 CDP/VNC，不挂 Docker socket，不添加 privileged 或 SYS_ADMIN。
     # 不设置 no-new-privileges：某些内核需要 Chrome 自带 setuid 沙箱。
 volumes:

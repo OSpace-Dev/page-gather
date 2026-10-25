@@ -2,13 +2,13 @@
 
 ## 范围与前置条件
 
-这是 Page Gather / 拾页的 **P1 最小实现，尚未通过目标容器和真实站点验收**。只实现单容器、单 Chrome 档案、显式 CLI 和直接 CDP SDK；不含中心服务、插件平台、数据库、调度、上报、通知或签到（P2–P5）。不会启动周期采集，不会默认访问真实网站或执行点击。Chrome 启动页为 `about:blank`，CLI 默认导航为容器内本地 fixture。Chrome 自身可能产生更新/网络基础请求；相关后台功能已尽量关闭，但不是完全离线浏览器承诺。
+这是 Page Gather / 拾页的 **P1 最小实现，已通过本轮 WSL/Docker 28.3.3 的真实 Chrome 合成集成验收；尚待完整复审、用户服务器和真实站点验收**。只实现单容器、单 Chrome 档案、显式 CLI 和直接 CDP SDK；不含中心服务、插件平台、数据库、调度、上报、通知或签到（P2–P5）。不会启动周期采集，不会默认访问真实网站或执行点击。Chrome 启动页为 `about:blank`，CLI 默认导航为容器内本地 fixture。Chrome 自身可能产生更新/网络基础请求；相关后台功能已尽量关闭，但不是完全离线浏览器承诺。
 
-前提：Linux amd64、Docker Engine 与 Compose v2、本地持久卷、可用的 Chrome 沙箱。arm64 不默认启用模拟器，也不替换成 Chromium。本轮发现 WSL Docker 可用，已用只读挂载、无外网的通用 Node 容器执行回归测试；以下 Chrome worker 构建与部署命令仍为**待执行步骤，不是已成功运行记录**。
+前提：Linux amd64、Docker Engine 与 Compose v2、本地持久卷、可用的 Chrome 沙箱。本轮真实镜像构建、Chrome/CDP、RFB 通路、持久 Cookie/localStorage 重建与正常停止均通过，完整版本和边界见 [P1 验证记录](P1-verification.md)。这不代表实际服务器已部署，也不代表真实账号已登录。arm64 不默认启用模拟器，也不替换成 Chromium。
 
 ## 1. 版本与启动
 
-Node 镜像固定为 `24.15.0-bookworm-slim`，本地测试使用 Node 24.22.1；镜像标签拉取及兼容性尚待构建验证，未固定镜像 digest。Chrome 必须明确指定完整 deb 版本；不内置可能过时的 stable 版本。通过 Google 官方 APT 仓库确认可下载版本后，将下方占位符替换为该版本（含 `-1` 等发行后缀）。不填写会由 Compose 直接报错。Google 仓库可能下架旧版本；不要假装只靠版本参数就能永久重建。Debian 系统包尚未做快照锁定，构建后记录镜像 digest 和软件版本。
+Node 镜像固定为 `24.15.0-bookworm-slim`，本轮实际镜像内 Node 为 24.15.0、本地测试为 24.22.1；已真实构建和验收，Dockerfile 尚未固定基础镜像 digest。Chrome 必须明确指定完整 deb 版本；不内置可能过时的 stable 版本。通过 Google 官方 APT 仓库确认可下载版本后，将下方占位符替换为该版本（含 `-1` 等发行后缀）；本轮实测为 `156.0.8078.47-1`。不填写会由 Compose 直接报错。Google 仓库可能下架旧版本；不要假装只靠版本参数就能永久重建。Debian 系统包尚未做快照锁定，构建后记录镜像 ID、可用的 registry digest 和软件版本。
 
 ```sh
 export CHROME_VERSION='<完整Chrome-deb版本>'
@@ -22,7 +22,7 @@ docker compose exec browser-worker node apps/worker/src/cli.js status
 PowerShell 用户使用 `$env:CHROME_VERSION = '<完整Chrome-deb版本>'`。所有路径均以仓库根为工作目录；文中的 `/data/...`、`/run/...`、`/opt/...`、`/home/node` 为**容器内约定路径**，不是宿主真实路径。
 
 - 非 root `node` 用户启动 Xvfb → Openbox → 有界面 Google Chrome，tini 回收子进程。Chrome 不是 headless，也没有默认 `--no-sandbox`。
-- 默认使用 Docker 自身 seccomp，未添加 privileged、SYS_ADMIN 或 Docker socket。保留 Chrome 自带 root-owned setuid 沙箱，不设置可能禁用该沙箱的 no-new-privileges。宿主内核/user namespace/LSM 的兼容性必须实测；沙箱失败即启动失败，**禁止为了跑通默认禁用沙箱**。在浏览器 `chrome://sandbox` 中人工确认实际沙箱。
+- Compose 为本项目 worker 使用[受限 userns seccomp profile](../infra/browser/seccomp/README.md)，从实测 Engine 对应的 Moby v28.3.3 官方默认策略派生，仅增加带参数限制的 clone/unshare 例外；未放行 setns/clone3，未添加 privileged、SYS_ADMIN 或 Docker socket，不改全局 daemon。该策略扩大 userns 接口可用范围，不能当成与 Docker 默认策略完全等价；升级 Engine/Chrome/内核必须重新审阅和验收。保留 Chrome 自带 root-owned setuid helper，不设置可能禁用该 helper 的 no-new-privileges。本轮非 root Chrome 实际使用有效 Namespace sandbox，未添加 disable-setuid-sandbox。宿主内核/userns/LSM 仍必须实测；失败即停止，**禁止为了跑通默认禁用 Chrome 沙箱**。在 `chrome://sandbox` 核对 Namespace、PID/NET、Seccomp-BPF、TSYNC 及 adequately sandboxed。
 - Chrome 用户目录固定 `/data/profiles/main`，CDP 固定容器 `127.0.0.1:9222`；不发布或代理它。CLI 经权限 0600 的容器内 Unix socket 请求唯一控制进程；不得绕过该控制器在同一浏览器直接并发运行 SDK。
 - 512 MiB 共享内存只是起点，无真实站点 CPU/内存跑分，不承诺容量。
 - 任一关键子进程异常退出导致整个 worker 停止，不偷偷启动第二份 Chrome。Compose 默认不自动重启，先检查原因。
@@ -84,7 +84,9 @@ docker compose up -d browser-worker
 # 重建验证：stop → build → up -d --force-recreate（不删除卷）
 ```
 
-SIGTERM 同步封闭请求与 launch 两道门禁，停止监听并销毁既有控制 socket（包括半包），撤销 noVNC 网关，再并行停止所有已登记进程组；8 秒未退出发 SIGKILL，再确认退出。组长 exit 不等于进程组清空：后代仍存活就保留登记，直到确认组消失才移除。在途 manual-start 无法在停机快照后 spawn；等待请求清理完成后再检查一次组注册表。人工退出则严格先关闭网关、再关闭 websockify、最后关闭 VNC。Compose 预留 30 秒。停止时在途只读请求可能失败，不自动重放。`docker compose down` 保留命名卷；**不要使用 `down -v`**，它会删除用户目录与诊断。
+SIGTERM 同步封闭请求与 launch 两道门禁，停止监听并销毁既有控制 socket（包括半包），撤销 noVNC 网关。正常停止先用有界 CDP `Browser.close` 请求 Chrome 退出并等待，给 Cookie 数据库等完成正常落盘的机会，然后回收全部已登记进程组；正常关闭失败仍回收并以非零退出报告失败。直接同时终止 Chrome 和后代曾造成刚写入的持久 Cookie 丢失，本轮修复后已通过同卷重建；这不保证崩溃或断电时持久化。
+
+进程组回收先 SIGTERM，8 秒未退出发 SIGKILL，再确认退出。组长 exit 不等于进程组清空：后代仍存活就保留登记，直到确认组消失才移除。在途 manual-start 无法在停机快照后 spawn；等待请求清理完成后再检查一次组注册表。人工退出则严格先关闭网关、再关闭 websockify、最后关闭 VNC。Compose 预留 30 秒。停止时在途只读请求可能失败，不自动重放。`docker compose down` 保留命名卷；**不要使用 `down -v`**，它会删除用户目录与诊断。
 
 | 命名卷 | 容器目录 | P1 用途 |
 |---|---|---|
@@ -94,7 +96,7 @@ SIGTERM 同步封闭请求与 launch 两道门禁，停止监听并销毁既有�
 
 首次空命名卷从镜像继承目录权限；已有卷必须由管理员确认归属 node UID/GID（镜像通常为 1000:1000，部署时核实），不可 chmod 777 或以 root 运行 Chrome。不要两容器共享并发操作同一 main 档案。Chrome profile 锁冲突会失败，不自动删除 SingletonLock；确认所有旧 Chrome 已停止后再人工修复。只在 Chrome 完全停止时备份完整 profiles。`--password-store=basic` 避免容器缺少桌面 keyring 导致交互阻塞，但**不提供密钥环级保护**：卷和备份均视为敏感凭据，限制宿主权限并采用磁盘/备份加密。截图同样敏感，不经公网提供。
 
-## 6. 无 Chrome 测试与待验收
+## 6. 回归与目标环境验收
 
 ```sh
 npm ci --ignore-scripts
@@ -104,8 +106,17 @@ git diff --check
 
 零第三方 npm 包，锁文件纳入仓库；禁止依赖检查拒绝任意新直接依赖、间接锁包和额外 package.json，而不是只检查几个框架名字。测试使用协议假对象、本地真实 TCP/HTTP Upgrade 与可注入的进程组信号；POSIX 平台另有真实组长退出后回收后代测试，Windows 明确跳过该项，不需要 Chrome。完整计数和平台差异见验证记录。敏感扫描覆盖常用 JSON 带引号键、YAML、dotenv/export 的引号与裸值，合成测试数据仅运行时拼装；保留所有 Windows 盘符路径检查。它仍是按行启发式检查（如多行 YAML、短值、任意命名或编码秘密不保证发现），仅输出相对文件名和行号。详见 [P1 验证记录](P1-verification.md)。
 
-目标环境验收必须逐项执行：镜像构建/记录版本；health；fixture 导航、读取、PNG；MANUAL 下自动拒绝；断开 noVNC 保持 MANUAL；manual-finish 后旧 WebSocket 无法输入；通过真实 noVNC 验证默认来源可连，缺失/null/恶意/未配置来源握手 403，6081 无法从容器外访问；同卷重建、会话重新探测；原始 VNC/CDP 不可从宿主/外网连接；沙箱实际启用；SIGTERM 后无残留 Chrome；真实站点手动登录及重建后保持/失效判断。以上未通过前不标记 P1 完成，不进入 P2–P5。
+本轮开发容器已通过上述合成集成检查，可在 Linux/WSL 仓库根显式复跑（只操作独立 `page-gather-p1-dev` project；已有该项目容器时拒绝覆盖）：
+
+```sh
+export CHROME_VERSION='<已确认可下载的完整Chrome-deb版本>'
+bash scripts/verify-p1-container.sh
+```
+
+脚本验证真实 Chrome/CDP、sandbox 页面、fixture 导航/PNG、MANUAL 互斥、RFB 输入与 Origin、入口撤销、持久 HttpOnly Cookie/localStorage 同卷重建、重启 PAUSED/unknown、内部服务网卡隔离和正常停止；退出时停容器、清理该项目网络、保留卷，不删除用户目录。日志只放系统临时目录，不提交。RFB 自动化通过不等于已经人工浏览器点击 noVNC UI。
+
+用户目标环境仍须逐项复验：镜像与软件版本、安全策略和实际 sandbox；浏览器打开 noVNC UI 的真实人工操作；默认来源可连及异常来源 403；宿主/外网原始 VNC/CDP/6081 不可连接；真实站点手动登录、同卷重建后会话重新探测；SIGTERM 无残留。开发容器的合成 Cookie 不能证明网站登录有效。开发交付已通过 Reviewer 完整评审和修复复审，见 [评审记录](reviews/p1-development-review.md)。服务器与真实账号验收由用户执行；不能将开发合成结果当作目标环境已完成。本轮不进入 P2–P5。
 
 ## 官方 API 查阅依据
 
-本轮成功读取官方 devtools-protocol 的 browser_protocol.json，核对 Page.navigate/lifecycleEvent 的 loaderId 与 Target.closeTarget 的 success。Node globals 页面可获取但标题匹配检查未确认 WebSocket，Chrome 用户目录变更说明本轮抓取失败；不能将它们记为本轮 API 已核实。原生 WebSocket 的协议单测使用假传输，不替代真实 Chrome 握手。既有官方入口见 [架构依据](02-architecture.md#10-参考资料)。
+此前成功读取官方 devtools-protocol 的 browser_protocol.json，核对 Page.navigate/lifecycleEvent 的 loaderId 与 Target.closeTarget 的 success。Node globals 页面当时可获取但标题匹配检查未确认 WebSocket，Chrome 用户目录变更说明当时抓取失败；不将这些历史失败记为已核实。本轮原生 WebSocket 已通过真实 Chrome/CDP 集成，停机 Browser.close 也通过实际持久 Cookie 重建验证。既有官方入口见 [架构依据](02-architecture.md#10-参考资料)。

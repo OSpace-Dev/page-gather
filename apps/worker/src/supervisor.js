@@ -11,7 +11,7 @@ const socketPath = process.env.PAGE_GATHER_SOCKET || '/run/page-gather/control.s
 const admission = new Admission();
 const groups = new ProcessGroups({ onFailure: () => void shutdown(1) });
 const origins = parseOrigins(process.env.PAGE_GATHER_NOVNC_ORIGINS);
-let shuttingDown = false; let server; let fixture; let controller;
+let shuttingDown = false; let server; let fixture; let controller; let chrome;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const launch = (...args) => groups.launch(...args);
@@ -80,6 +80,13 @@ async function shutdown(code = 0) {
     await quiesce({ groups, admission, close: async () => {
       fixture?.close(); fixture?.closeAllConnections();
       await desktop.gateway?.close();
+    }, beforeStop: async () => {
+      if (code !== 0 || !chrome || chrome.ended) return;
+      // SIGTERM 整组会打断 Cookie 数据库写入；先请求 Chrome 正常退出。
+      const cdp = await Cdp.connect('http://127.0.0.1:9222', 1000);
+      try { await cdp.send('Browser.close'); } finally { cdp.close(); }
+      for (let i = 0; i < 30 && !chrome.ended; i++) await delay(100);
+      if (!chrome.ended) throw new Error('CHROME_CLOSE_TIMEOUT');
     } });
   } catch { failed = true; }
   await unlink(socketPath).catch(() => {});
@@ -110,7 +117,7 @@ async function main() {
   const wm = launch('openbox', []);
   await delay(300);
   if (wm.ended) throw new Error('WINDOW_MANAGER_FAILED');
-  launch('google-chrome', [
+  chrome = launch('google-chrome', [
     '--user-data-dir=/data/profiles/main', '--remote-debugging-address=127.0.0.1',
     '--remote-debugging-port=9222', '--no-first-run', '--no-default-browser-check',
     '--disable-background-networking', '--disable-component-update', '--disable-sync',

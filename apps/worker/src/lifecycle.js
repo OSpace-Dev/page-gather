@@ -55,9 +55,12 @@ export class ProcessGroups {
 }
 
 // 同步关门后才取进程快照；等待在途任务完成，再确认最终注册表。
-export async function quiesce({ groups, admission, close = async () => {} }) {
+export async function quiesce({ groups, admission, close = async () => {}, beforeStop = async () => {} }) {
   groups.seal(); admission.close();
-  const results = await Promise.allSettled([close(), groups.stopAll()]);
+  const results = await Promise.allSettled([close(), (async () => {
+    // 正常关闭浏览器以落盘；失败也必须继续回收全部进程组。
+    try { await beforeStop(); } finally { await groups.stopAll(); }
+  })()]);
   await admission.drain();
   const final = await Promise.allSettled([groups.stopAll()]);
   if ([...results, ...final].some(result => result.status === 'rejected')) throw new Error('SHUTDOWN_FAILED');
@@ -90,11 +93,12 @@ export function controlServer(admission, execute) {
   const server = createServer(socket => {
     socket.on('error', () => {});
     if (!admission.accept(socket)) return;
+    socket.setEncoding('utf8');
     let input = ''; let received = false;
     socket.setTimeout(60000, () => socket.destroy());
     socket.on('data', chunk => {
       if (received || admission.closed) return;
-      input += chunk.toString();
+      input += chunk;
       if (input.length > 16384) { socket.destroy(); return; }
       if (!input.includes('\n')) return;
       received = true;
