@@ -80,7 +80,7 @@ P2 最小闭环后，在目标 CPU 和磁盘上建立 10 万、100 万记录及�
 ### 4.1 默认拓扑
 
 - **现有 NGINX**：继续负责域名、TLS、静态前端和反向代理，属于现有基础设施，不由项目重新部署证书或入口。前端 dist 以版本目录发布给 NGINX；若无法挂载文件，可后续选择独立静态资源容器作为 upstream，但首版不增加第二层 NGINX。
-- **server 容器**：Node.js/Fastify、API、调度、通知、嵌入式 SQLite。单实例。只绑定部署目录 `./data/database`，不包含 Chrome/Xvfb；优雅关闭时停止新调度并提交短事务。
+- **server容器**：Node.js；早期推荐Fastify，P2实际用原生HTTP与node:sqlite减少运行依赖。已实现API、任务协调和嵌入式SQLite，调度与推送留后续。单实例。只绑定部署目录 `./data/database`，不包含 Chrome/Xvfb；优雅关闭时停止新调度并提交短事务。
 - **browser-worker 容器**：真实有界面 Google Chrome、Node 执行器、直接 CDP 适配层、可信插件、Xvfb/窗口管理器、VNC/noVNC。Chrome 是该容器中的受管理子进程，不是把浏览器界面嵌入服务端进程。分别绑定部署目录 `./data/profiles`、`./data/spool`、`./data/artifacts`，与 `./data/database` 目录隔离；迁移时可连同部署目录整体搬迁，停止服务后保留权限及符号链接。
 
 server 与 worker 内网通信，worker 主动领取并上报，CDP 和原生 VNC 不映射公网。不把 Docker socket 挂进 server 来实现强杀容器；无法确认旧进程停止时按已有 RECOVERING/人工处理，不扩展服务端宿主权限。已有 NGINX 在宿主机时 API 端口只绑定 loopback 或受控私网；NGINX 在容器时接入明确的内部网络，不直接公开 server/worker 管理端口。
@@ -95,7 +95,7 @@ API、认证响应和敏感数据不进入 NGINX 共享缓存或 Service Worker 
 
 noVNC 如需通过现有 NGINX 访问，使用受认证的管理 location，HTTP 和 WebSocket 握手均校验人工会话、支持 Upgrade/Connection 和合适超时。退出人工模式时必须关闭已有 WebSocket 连接或由浏览器容器撤销输入通道，单纯让后续鉴权失败不能阻止已连接的远程操作者。该细化落实原人工互斥要求，不开放裸 noVNC。
 
-API/worker 的上报大小上限由实现时统一配置于 Fastify、NGINX 和插件批次限制；413 保留 spool 并显示需调整配置/采集范围，不能无限当网络故障重试。首次部署检查深链接、代理头、Cookie、Service Worker 更新和远程会话撤销。
+node:sqlite/原生HTTP配置的请求体上限10MiB；若通过既有NGINX接入，也应同步代理上限。413 保留 spool 并显示需调整配置/采集范围，不能无限当网络故障重试。首次部署检查深链接、代理头、Cookie、Service Worker 更新和远程会话撤销。
 
 ## 5. Chrome 容器化的明确结论
 

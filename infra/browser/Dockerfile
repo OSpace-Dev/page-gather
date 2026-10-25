@@ -19,10 +19,10 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/page-gather
-COPY package.json package-lock.json ./
-COPY scripts/check-dependencies.js ./scripts/
-RUN npm ci --ignore-scripts --omit=dev && npm run check:deps
+COPY package.json ./
 COPY apps/worker ./apps/worker
+COPY packages/plugin-sdk ./packages/plugin-sdk
+COPY plugins ./plugins
 RUN mkdir -p /tmp/.X11-unix \
     && chown root:root /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix \
     && mkdir -p /data/profiles/main /data/spool /data/artifacts /run/page-gather \

@@ -1,0 +1,94 @@
+name: page-gather-p2
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    restart: "no"
+    stop_grace_period: 30s
+    environment:
+      NODE_ENV: ${PAGE_GATHER_NODE_ENV:-development}
+      PAGE_GATHER_PORT: "3000"
+      PAGE_GATHER_DATABASE_FILE: /data/database/page-gather.sqlite
+      PAGE_GATHER_PUBLIC_ORIGIN: ${PAGE_GATHER_PUBLIC_ORIGIN:-http://127.0.0.1:18080}
+      PAGE_GATHER_COOKIE_SECURE: ${PAGE_GATHER_COOKIE_SECURE:-false}
+      PAGE_GATHER_ADMIN_PASSWORD_FILE: /run/secrets/admin-password
+      PAGE_GATHER_WORKER_TOKEN_FILE: /run/secrets/worker-token
+      PAGE_GATHER_WORKER_ID: worker-main
+    volumes:
+      - type: bind
+        source: ./data/database
+        target: /data/database
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/config/admin-password
+        target: /run/secrets/admin-password
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/config/worker-token
+        target: /run/secrets/worker-token
+        read_only: true
+        bind:
+          create_host_path: false
+  browser-worker:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: infra/browser/Dockerfile
+      args:
+        CHROME_VERSION: ${CHROME_VERSION:?请明确设置可用的完整 Chrome deb 版本}
+    restart: "no"
+    stop_grace_period: 40s
+    shm_size: 512mb
+    security_opt:
+      - seccomp=./infra/browser/seccomp/chrome-userns-amd64.json
+    environment:
+      DISPLAY: :99
+      PAGE_GATHER_SERVER_URL: http://server:3000
+      PAGE_GATHER_WORKER_TOKEN_FILE: /run/secrets/worker-token
+      PAGE_GATHER_WORKER_ID: worker-main
+      PAGE_GATHER_NOVNC_ORIGINS: ${PAGE_GATHER_NOVNC_ORIGINS:-http://127.0.0.1:16080}
+      CHROME_DISABLE_HTTP2: ${CHROME_DISABLE_HTTP2:-0}
+      CHROME_DISABLE_QUIC: ${CHROME_DISABLE_QUIC:-0}
+    ports:
+      - "127.0.0.1:${PAGE_GATHER_P2_BROWSER_PORT:-16080}:6080"
+    volumes:
+      - type: bind
+        source: ./data/profiles
+        target: /data/profiles
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/spool
+        target: /data/spool
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/artifacts
+        target: /data/artifacts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/config/worker-token
+        target: /run/secrets/worker-token
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      - server
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_BROWSER_PREVIEW_URL: ${VITE_BROWSER_PREVIEW_URL:-http://127.0.0.1:16080/vnc.html}
+    restart: "no"
+    ports:
+      - "127.0.0.1:${PAGE_GATHER_WEB_PORT:-18080}:80"
+    depends_on:
+      - server
+# P2开发预览的NGINX静态入口；实际服务器可将dist和API接入既有NGINX。
+# 所有data都是本部署目录子目录，不与保留的P1预览共享。

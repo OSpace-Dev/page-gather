@@ -7,7 +7,7 @@
 | 单元 | 推荐方案 | 职责 |
 |---|---|---|
 | Web/PWA | Vue 3 + TypeScript + Vite + Vue Router + Naive UI（本轮推荐） | 管理、查询、安装与推送订阅；静态构建后由现有 NGINX 提供 |
-| 中心服务 | Node.js + TypeScript + Fastify，独立 server 容器 | 用户认证、配置、调度、任务 API、入库、变化判断、通知 |
+| 中心服务 | Node.js 24原生HTTP + node:sqlite，独立server容器 | P2已实现用户认证、配置、任务API、入库和版本；调度/通知后续实现，Fastify为早期建议未引入 |
 | 数据库 | SQLite（嵌入中心服务，WAL 模式） | 任务、租约、数据、事件、订阅、操作记录；数据库目录挂载本地持久化卷 |
 | 浏览器执行器 | Node.js + CDP 客户端 + 有界面 Google Chrome | 插件运行、登录探测、结果暂存和上报；不引入 Playwright |
 | 可视化环境 | Xvfb + 轻量窗口管理器 + VNC/noVNC | 用户进入同一服务器 Chrome 手动登录 |

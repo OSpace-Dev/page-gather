@@ -1,0 +1,104 @@
+# P2 使用与开发预览
+
+## 范围
+
+P2接通手动任务、完整流程插件、真实Chrome、接口上报、SQLite及Vue3/Naive UI页面。每日定时调度、推送、签到留在P3–P5，不会在启动后自动访问GitHub。当前开发构建和验收结果以 [P2验证记录](P2-verification.md) 为准。
+
+开发使用独立P2部署副本与data，不能与P1预览共用Chrome档案；P1的6080入口保留。P2默认页面18080、浏览器桌面16080，均只绑定宿主loopback。实际服务器由用户以后亲自部署，本轮不操作服务器。
+
+## 1. 初始化与构建
+
+在Linux/WSL原生文件系统中的完整部署目录执行，要求非root的UID/GID1000:1000、Python3、Docker Engine及Composev2。不要在Windows挂载盘放活动Chrome档案；初始化会检查权限、链接与Unix socket能力。
+
+```sh
+export CHROME_VERSION='<官方仍可下载的完整Chrome-deb版本>'
+bash scripts/init-p2.sh
+docker compose -p page-gather-p2-dev -f compose.p2.yaml config --quiet
+docker compose -p page-gather-p2-dev -f compose.p2.yaml build
+docker compose -p page-gather-p2-dev -f compose.p2.yaml up -d
+```
+
+P1已验证的Chrome版本为156.0.8078.47-1，但仓库可能下架旧包；按实际构建记录核验。server使用Node24内置node:sqlite，不需要独立数据库容器；web在多阶段构建中安装锁定的Vue依赖并生成静态资源，运行时是NGINX。worker/server未引入高层浏览器框架，直接和间接依赖均检查禁止Playwright等。
+
+`data/`默认结构：
+
+```text
+data/
+  config/
+    admin-password    # 首次随机生成，0600，不重复覆盖
+    worker-token      # 与管理密码独立，0600
+  database/           # SQLite及WAL/SHM
+  profiles/           # 该P2浏览器专用档案
+  spool/              # 检查点、封存包和投递记录
+  artifacts/          # 诊断和开发截图
+```
+
+配置与数据均在部署目录子目录，所有挂载缺失时拒绝自动创建。`data`、备份和归档在Git、Docker上下文及测试复制中排除。原目录迁移、权限与备份要求同 [存储说明](P1-storage.md)；SQLite运行中不能只复制主db文件，整体data备份前先正常停止全部服务。
+
+## 2. 登录管理页面
+
+访问 **http://127.0.0.1:18080/**，用户名为 `admin`。
+
+密码由初始化脚本写到部署目录 `data/config/admin-password`，脚本不输出它。用户自行在可信终端查看，不将内容贴到聊天、截图、日志或仓库。若使用默认开发容器名，可在Windows终端执行：
+
+```powershell
+wsl -d Ubuntu-22.04 -- docker exec page-gather-p2-dev-server-1 node -e "process.stdout.write(require('node:fs').readFileSync('/run/secrets/admin-password','utf8'))"
+```
+
+`/run/secrets/admin-password`是容器内约定路径，不是宿主真实路径。该命令仅供用户自己读取本地密码；无需将输出提供给助手。自建project时容器名按实际调整。
+
+登录会话使用HttpOnly/SameSite Cookie，接口写操作校验明确Origin；浏览器访问须使用127.0.0.1，localhost是不同Origin。服务重启后重新登录，密码文件保持不变。不要删除配置文件以免误以为丢失数据。
+
+## 3. 查看采集效果
+
+1. 进入任务页面，选择预置“GitHub每日Trending”任务。
+2. 首次建议设置项目数3、间隔5000ms，保存后手动执行；确认效果后再增加项目数。
+3. 页面展示任务排队、执行阶段、项目进度与错误。浏览器后台会停止/降频轮询，不依赖页面常开维持采集。
+4. 运行详情保留完整榜单快照，尚未处理或失败的项目也显示，不以README成功数量替代榜单总数。
+5. 点击项目查看README正文与来源；正文作为文本展示，不执行其HTML或脚本。不承诺原始Markdown或文件完整性，原文件来源无法确认时显示页面来源。
+6. 数据页面可查看已保存项目及版本历史。重复内容不会增加正文版本；旧运行使用固定版本引用重建，不被新内容覆盖。
+
+一次任务只采当时GitHub展示的daily榜单。每日触发尚未实现，不会每天自动运行；实际项目数量以当时榜单和任务上限为准。
+
+## 4. 取消、失败与恢复
+
+取消只停止后续访问，已经采集的结果可以按partial保存；不会撤销已入库数据。README确实不存在、仓库404、网络失败和页面改版分开记录。403/429/挑战停止批次，不持续重试。出现partial先看详情错误，而不是反复点运行。
+
+已SEALED的结果上报失败时保留在spool，恢复只上传原包，不重复抓网页。中心以不可变collection序号、sealCAS、幂等收据和档案水位防止旧批次覆盖新数据。普通正常提交正文只保存为去重版本，run保留固定版本关联；STALE保留原归档，不改当前业务数据。
+
+P2尚未自动授权OPEN检查点续采。worker中断后如果只有OPEN草稿，会保留并报告需要处理，不假装已提交，不自动重新访问项目。接口附件上传尚未接入，执行诊断以阶段和错误码为准，不声称已有失败截图。
+
+## 5. 人工浏览器
+
+P2桌面入口为 **http://127.0.0.1:16080/vnc.html**。只有明确进入人工模式后才开放：
+
+```powershell
+wsl -d Ubuntu-22.04 -- docker exec page-gather-p2-dev-browser-worker-1 node apps/worker/src/cli.js manual-start
+```
+
+有任务正在执行时返回WORKER_BUSY，不能同时操作。进入人工模式后worker暂停领取，已排队任务等待；结束时用manual-finish撤销旧连接，再恢复领取。
+
+P2采集GitHub公开页面不需要登录，不因session unknown拒绝公开任务，也不将公开页标记当作账号有效。P1原预览和P2是不同档案，不会自动复用或复制原登录状态。
+
+## 6. 环境配置
+
+`compose.p2.yaml`默认用于可信本机开发HTTP：
+
+- `PAGE_GATHER_PUBLIC_ORIGIN=http://127.0.0.1:18080`
+- `PAGE_GATHER_NODE_ENV=development`
+- `PAGE_GATHER_COOKIE_SECURE=false`
+- `PAGE_GATHER_WEB_PORT=18080`、`PAGE_GATHER_P2_BROWSER_PORT=16080`
+
+更换端口时同步PUBLIC_ORIGIN和浏览器Origin、前端构建参数VITE_BROWSER_PREVIEW_URL，不能只改端口。实际服务器后续接入已有域名/NGINX/TLS，配置production、真实HTTPS origin和Secure cookie；不需要本项目新建证书服务。server只接受配置的代理入口Origin，不从不可信头推导信任。
+
+此前WSL独立GitHub测试遇到HTTP2/QUIC网络超时，可由部署者显式设置 `CHROME_DISABLE_HTTP2=1`、`CHROME_DISABLE_QUIC=1` 后重建worker。默认保持0；这是该环境网络兼容参数，不是账号风控规避或防封禁保证。是否在本轮预览启用见验证记录。
+
+## 7. 停止、备份与迁移
+
+正常停止再备份，检查各服务退出码，Chrome或SQLite异常退出不能声称一致性迁移。备份data到部署内backups或部署目录之外，保留权限/符号链接/所有权；配置文件和档案同样敏感。恢复到新的空部署目录，先校验再启动，不能两个实例共用活动data。
+
+```sh
+docker compose -p page-gather-p2-dev -f compose.p2.yaml stop
+```
+
+当前开发预览应保留运行供用户验收，除非用户主动要求，不执行停止或清理。修改或删除data会影响结果与登录凭据；不要全局Docker prune。用户服务器部署验收以后再做，不阻塞当前开发阶段。

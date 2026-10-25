@@ -9,6 +9,20 @@ export class Controller {
   }
   status() { return { mode: this.mode, session: this.session, busy: this.busy, faulted: this.faulted }; }
   async persist() { await this.save(this.status()); }
+  async runExternal(action) {
+    if (this.busy) throw new Error('WORKER_BUSY');
+    if (this.faulted) throw new Error('WORKER_RESTART_REQUIRED');
+    if (this.mode === 'MANUAL' || this.mode === 'MANUAL_REQUESTED') throw new Error('MANUAL_ACTIVE');
+    this.busy = true;
+    try { return await action(); }
+    catch (error) {
+      this.mode = 'PAUSED'; this.session = { status: 'unknown', checkedAt: new Date().toISOString() };
+      try { await this.desktop.stop(); } catch { this.faulted = true; }
+      if (error.message === 'TARGET_CLEANUP_FAILED') this.faulted = true;
+      try { await this.persist(); } catch { this.faulted = true; }
+      throw error;
+    } finally { this.busy = false; }
+  }
   async run(request) {
     if (!request || typeof request !== 'object') throw new Error('INVALID_REQUEST');
     const { command } = request;

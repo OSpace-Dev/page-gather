@@ -2,7 +2,16 @@
 
 个人网站采集项目，采用真实有界面 Google Chrome 与直接 CDP，复用用户在该浏览器手动登录的持久目录。默认将运行数据绑定到部署目录 `./data/{profiles,spool,artifacts}`，后续 SQLite 使用 `./data/database`；不依赖默认 Docker 命名卷。不会保证防检测或不封号。
 
-**原P1开发代码、开发环境真实Chrome合成验收及完整评审已通过；bind持久化修订复审通过，WSL容器保留供用户直观验收。当前P2的插件SDK与GitHub Trending/README基础代码已通过评审，中心/SQLite/前端尚未接通。服务器部署验收以后再做。P3–P5未实现。** 当前没有中心服务、Web 管理端、每日调度、业务采集插件、入库或推送，不会默认访问真实站点或自动点击。
+**P1及P2开发交付、WSL开发环境验收与Reviewer完整评审均已通过。P2页面已可查看GitHub榜单和README，预览保留运行。服务器部署以后再做，不是当前开发门槛；P3–P5尚未实现。** 当前支持用户登录、手动采集、完整榜单、README查看和版本去重。每日调度、推送、签到未实现；不会在启动后自动采集或点击。
+
+## P2 页面与采集效果
+
+- 开发管理页：**http://127.0.0.1:18080/**，预置3项目任务和已保存的真实采集结果。
+- [P2使用与登录说明](docs/P2-usage.md)：用户名admin，密码在本地私有文件，不写入仓库或聊天。
+- [P2验证记录](docs/P2-verification.md)及[完整评审记录](docs/reviews/p2-integration-review.md)。
+- `compose.p2.yaml`：独立server（Node/SQLite）、web（Vue/NGINX）、browser-worker（Chrome/CDP），全部持久化位于该部署副本data内。
+
+P2浏览器入口16080仅人工模式开放；原P1预览6080保留，不共享账号档案。接入真实服务器及后续阶段时再按相应文档执行。
 
 ## P1 快速入口
 
@@ -29,7 +38,7 @@ npm run check
 - `plugins/github-trending/`：冻结榜单，串行读取README，独立保存榜单与正文来源。
 - [本轮评审和验证](docs/reviews/p2-workflow-review.md)：设计及代码修复复审通过，独立在线smoke2/2；保留默认生产网络未验证的限制。
 
-尚未接入中心服务或现有worker CLI，不自动接管MANUAL预览。P2完整闭环继续按计划实现。
+完整P2已接通中心和worker，收据、水位、seal与版本存储均有实现及回归；P2仍不自动续采OPEN工作检查点，已SEALED则只重传。SDK本身不绕过平台租约或接管MANUAL预览。
 
 ## 设计文档
 
@@ -42,4 +51,4 @@ npm run check
 7. [设计评审记录](docs/reviews/design-review.md)
 8. [P2 流程插件设计](docs/06-plugin-workflows.md)：首个GitHub Trending/README插件，完整流程、间隔、检查点及恢复。
 
-01–05 为原设计基线；其中“当前仅设计”等历史描述指设计交付时点。本轮只按用户授权新增 P1 最小实现，不代表其中中心服务、幂等上报、水位、调度、通知等设计已落地。服务器部署和真实账号验证由用户在后续适当时间执行，不作为当前开发交付或下一开发阶段的前置门槛。
+01–06保留设计基线与实现演进说明；当前已实现的范围以P1/P2验证记录为准。P3每日调度、P4推送、P5签到尚未实现。服务器部署与真实账号验证由用户在后续适当时间执行，不作为当前开发交付或下一开发阶段的前置门槛。

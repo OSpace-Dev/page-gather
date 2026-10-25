@@ -5,13 +5,14 @@ import { mkdir, readFile, writeFile, rename, chmod, unlink } from 'node:fs/promi
 import { fileURLToPath } from 'node:url';
 import { Cdp, CdpPage } from './cdp.js';
 import { Controller } from './controller.js';
+import { WorkerApi, WorkerPoller } from './poller.js';
 
 process.umask(0o077);
 const socketPath = process.env.PAGE_GATHER_SOCKET || '/run/page-gather/control.sock';
 const admission = new Admission();
 const groups = new ProcessGroups({ onFailure: () => void shutdown(1) });
 const origins = parseOrigins(process.env.PAGE_GATHER_NOVNC_ORIGINS);
-let shuttingDown = false; let server; let fixture; let controller; let chrome;
+let shuttingDown = false; let server; let fixture; let controller; let chrome; let poller;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const launch = (...args) => groups.launch(...args);
@@ -81,6 +82,8 @@ async function shutdown(code = 0) {
       fixture?.close(); fixture?.closeAllConnections();
       await desktop.gateway?.close();
     }, beforeStop: async () => {
+      // quiesce 的 close/beforeStop 并行，必须在此等待任务退出再关闭 Chrome。
+      await poller?.stop();
       if (code !== 0 || !chrome || chrome.ended) return;
       // SIGTERM 整组会打断 Cookie 数据库写入；先请求 Chrome 正常退出。
       const cdp = await Cdp.connect('http://127.0.0.1:9222', 1000);
@@ -122,7 +125,10 @@ async function main() {
     '--remote-debugging-port=9222', '--no-first-run', '--no-default-browser-check',
     '--disable-background-networking', '--disable-component-update', '--disable-sync',
     '--disable-default-apps', '--disable-extensions', '--password-store=basic',
-    '--window-size=1440,900', 'about:blank'
+    '--window-size=1440,900',
+    ...(process.env.CHROME_DISABLE_HTTP2 === '1' ? ['--disable-http2'] : []),
+    ...(process.env.CHROME_DISABLE_QUIC === '1' ? ['--disable-quic'] : []),
+    'about:blank'
   ]);
   await waitFor(async () => {
     try { const response = await fetch('http://127.0.0.1:9222/json/version', { signal: AbortSignal.timeout(500) }); return response.ok; } catch { return false; }
@@ -133,7 +139,7 @@ async function main() {
     await rename(temp, '/data/profiles/worker-state.json');
   } });
   await controller.persist();
-  // 控制 socket 不放共享卷；仅本容器同 UID 可用。没有 HTTP 管理面或中心服务。
+  // 控制 socket 不放共享卷；仅本容器同 UID 可用。
   await unlink(socketPath).catch(error => { if (error.code !== 'ENOENT') throw error; });
   admission.assertOpen();
   server = controlServer(admission, async request => {
@@ -146,6 +152,21 @@ async function main() {
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve); });
   await chmod(socketPath, 0o600);
-  console.log('Page Gather P1 ready; desktop disabled; session unknown.');
+  if (process.env.PAGE_GATHER_SERVER_URL) {
+    const tokenFile = process.env.PAGE_GATHER_WORKER_TOKEN_FILE;
+    if (!tokenFile) throw new Error('WORKER_TOKEN_FILE_REQUIRED');
+    const token = (await readFile(tokenFile, 'utf8')).trim();
+    if (!token) throw new Error('WORKER_TOKEN_REQUIRED');
+    poller = new WorkerPoller({ controller,
+      api: new WorkerApi({ url: process.env.PAGE_GATHER_SERVER_URL, token }),
+      workerId: process.env.PAGE_GATHER_WORKER_ID || 'worker-main',
+      withPage: async (use, lease, plugin, check) => {
+        admission.assertOpen();
+        const { taskPage } = await import('./poller.js');
+        return taskPage(use, lease, plugin, () => { admission.assertOpen(); check(); });
+      }
+    }).start();
+  }
+  console.log(`Page Gather ${poller ? 'P2' : 'P1'} ready; desktop disabled; session unknown.`);
 }
 main().catch(() => { console.error('WORKER_START_FAILED: 检查版本、卷权限、沙箱与显示环境；不会自动禁用沙箱。'); void shutdown(1); });
