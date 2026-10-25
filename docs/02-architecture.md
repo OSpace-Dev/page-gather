@@ -35,7 +35,7 @@ CDP 适配层负责 Target 页面会话管理、Page 导航、Runtime/DOM 数据
 
 ### 2.1 SQLite 运行约束
 
-- 数据库及其 `-wal`、`-shm` 文件所在目录整体挂载宿主机本地持久化卷，不放在容器可写层或 NFS/SMB 等共享文件系统上。约定容器内目录为 `/data/database`，这是设计的虚拟路径，不是宿主机真实位置。
+- 数据库及其 `-wal`、`-shm` 文件所在目录整体通过 bind mount 挂载部署目录下的 `./data/database`，不放在容器可写层、Docker 默认命名卷或 NFS/SMB 等共享文件系统上。约定容器内目录为 `/data/database`，这是设计的虚拟路径，不是宿主机真实位置。
 - 启用 `journal_mode=WAL`、`synchronous=FULL`，每个连接启用 `foreign_keys=ON`，建议 `busy_timeout=5000`。WAL 允许读写重叠，但同一时刻仍只有一个写事务。
 - 数据访问层串行协调写入，事务尽量短；浏览器访问、推送发送、文件处理和大批量 hash 计算放在事务外。遇到 SQLITE_BUSY 使用有上限的退避，不让心跳被长事务阻塞。
 - 中心服务选择受维护的 Node.js SQLite 驱动并锁定版本；同步驱动只执行短小有索引的查询，批量或耗时操作使用工作线程，避免阻塞事件循环。
@@ -46,7 +46,7 @@ SQLite 减少独立服务和部署开销，但不会消除 Chrome 的页面渲�
 
 ## 3. 执行器与浏览器生命周期
 
-执行器定期领取任务，只允许一个活动执行。Chrome 使用持久化目录，例如 `/data/profiles/main`，容器重建不得丢失。暂存结果位于 `/data/spool`，诊断附件位于 `/data/artifacts`，均挂载持久化卷。
+执行器定期领取任务，只允许一个活动执行。默认将部署目录 `./data/profiles`、`./data/spool`、`./data/artifacts` 分别绑定到容器 `/data/profiles`、`/data/spool`、`/data/artifacts`，Chrome 使用其中 `/data/profiles/main`。这些 `/data/...` 是容器内约定路径，不是宿主真实位置。容器重建保留部署目录数据，不再默认使用 Docker 命名卷；整体搬迁前正常停止服务并保留权限、符号链接，跨主机会话可能需要重登。
 
 默认让 Chrome 保持运行以方便人工登录和保持会话；异常时由执行器管理重启。浏览器进程重启前必须确认旧进程已退出且用户目录锁已释放，禁止两份 Chrome 共用同一目录。任务结束关闭任务创建的页面，保留浏览器环境；定期回收内存需要避开人工操作和运行任务。
 

@@ -2,13 +2,29 @@
 # 在 Linux/WSL 仓库根显式运行，仅验收本脚本拥有的开发 Compose 项目。
 set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-project=page-gather-p1-dev
+project="page-gather-p1-test-$(date +%s)-$$"
+port=${PAGE_GATHER_INTEGRATION_PORT:-16080}
+[[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 && port != 6080 )) || { echo '验收端口须为 1024..65535 且不能使用预览端口 6080'; exit 1; }
 : "${CHROME_VERSION:?先从 Google 官方仓库确认并设置完整 Chrome deb 版本}"
 [[ "$CHROME_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]] || { echo 'Chrome 版本格式错误'; exit 1; }
+origin=${PAGE_GATHER_NOVNC_ORIGINS:-http://127.0.0.1:$port}
+[[ "$origin" == "http://127.0.0.1:$port" ]] || { echo '验收 Origin 必须与独立端口一致'; exit 1; }
+export PAGE_GATHER_PORT=$port PAGE_GATHER_NOVNC_ORIGINS=$origin
+# 完整部署副本位于 Linux 临时目录，数据始终在该副本的 ./data。
 log_dir=$(mktemp -d "${TMPDIR:-/tmp}/page-gather-p1-verify.XXXXXX")
+chmod 700 "$log_dir"
+deployment="$log_dir/deployment"
+mkdir -m 700 "$deployment"
+tar --exclude=.git --exclude=node_modules --exclude=data --exclude=profiles --exclude=spool --exclude=artifacts \
+  --exclude=backups --exclude='*.tar' --exclude='*.tar.gz' --exclude='*.tgz' --exclude='*.zip' \
+  --exclude=.deployment-source.json \
+  --exclude='.env' --exclude='.env.*' --exclude='*.log' --exclude=probe.local.json -cf - . | tar -xf - -C "$deployment"
+cd "$deployment"
 # 日志可能含构建路径，只写系统临时目录，不复制进仓库。
-exec > >(tee "$log_dir/verification.log") 2>&1
-compose=(docker compose -p "$project")
+exec 3>&1
+exec > "$log_dir/verification.log" 2>&1
+echo '独立 bind 验收已启动；详细日志仅写系统临时目录。' >&3
+compose=(docker compose -p "$project" -f "$deployment/compose.yaml")
 if [[ -n "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ]]; then
   echo '验收项目已有容器；先确认并清理该项目自身容器，再重试。'; exit 1
 fi
@@ -18,10 +34,12 @@ cleanup() {
   "${compose[@]}" logs --no-color > "$log_dir/worker.log" 2>&1 || true
   "${compose[@]}" down --timeout 30 || result=1
   [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ]] || result=1
-  echo "验收退出码=$result；仅保留 ${project}_{profiles,spool,artifacts} 调试卷及本项目镜像；日志在系统临时目录。"
+  echo "验收退出码=$result；独立临时部署、bind 数据及日志保留在系统临时目录；预览项目不受影响。" >&3
   exit "$result"
 }
 trap cleanup EXIT
+bash scripts/init-data.sh
+python3 scripts/test-init-data.py
 "${compose[@]}" config --quiet
 diagnose_startup() {
   echo '运行同权限沙箱诊断（临时 profile，不修改主档案、不禁用沙箱）'
@@ -64,10 +82,12 @@ assert.ok(!security.CapAdd?.length);
 assert.equal(security.SecurityOpt.length, 1);
 assert.ok(security.SecurityOpt[0].startsWith("seccomp={"));
 assert.deepEqual(JSON.parse(security.SecurityOpt[0].slice(8)), JSON.parse(readFileSync("infra/browser/seccomp/chrome-userns-amd64.json", "utf8")));
-console.log("运行时安全检查通过：privileged=false、无 capAdd、精确使用本项目受限 seccomp profile");'
+assert.deepEqual(container.Mounts.map(m => [m.Type, m.Destination]).sort(),
+  ["artifacts", "profiles", "spool"].map(name => ["bind", `/data/${name}`]).sort());
+console.log("运行时安全及三个 bind mount 检查通过");'
 bindings=$(docker inspect -f '{{json .HostConfig.PortBindings}}' "$id")
-[[ "$bindings" == '{"6080/tcp":[{"HostIp":"127.0.0.1","HostPort":"6080"}]}' ]] || { echo '发现非预期发布端口'; exit 1; }
-echo '端口配置检查通过：仅发布宿主 loopback 6080，无 CDP/VNC/6081 发布；活体连接另行验证。'
+[[ "$bindings" == "{\"6080/tcp\":[{\"HostIp\":\"127.0.0.1\",\"HostPort\":\"$port\"}]}" ]] || { echo '发现非预期发布端口'; exit 1; }
+echo '端口配置检查通过：仅发布独立宿主 loopback 端口，无 CDP/VNC/6081 发布；活体连接另行验证。'
 wait_for_health() {
   local current_id=$1
   for ((attempt=0; attempt<60; attempt++)); do
@@ -123,7 +143,7 @@ for pid in "${!process_starts[@]}"; do
   fi
 done
 echo "优雅停止：退出码 0、容器 PID 0，检查 ${#process_starts[@]} 个原进程均已消失。"
-# 完整同卷重建，不能 down -v。
+# 使用同一部署目录的 bind 数据重建，保留合成持久化证据。
 "${compose[@]}" up -d --no-build --force-recreate browser-worker
 id=$("${compose[@]}" ps -aq browser-worker)
 wait_for_health "$id"

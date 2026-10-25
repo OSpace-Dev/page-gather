@@ -80,8 +80,8 @@ P2 最小闭环后，在目标 CPU 和磁盘上建立 10 万、100 万记录及�
 ### 4.1 默认拓扑
 
 - **现有 NGINX**：继续负责域名、TLS、静态前端和反向代理，属于现有基础设施，不由项目重新部署证书或入口。前端 dist 以版本目录发布给 NGINX；若无法挂载文件，可后续选择独立静态资源容器作为 upstream，但首版不增加第二层 NGINX。
-- **server 容器**：Node.js/Fastify、API、调度、通知、嵌入式 SQLite。单实例。只挂载中心数据卷，不包含 Chrome/Xvfb；优雅关闭时停止新调度并提交短事务。
-- **browser-worker 容器**：真实有界面 Google Chrome、Node 执行器、直接 CDP 适配层、可信插件、Xvfb/窗口管理器、VNC/noVNC。Chrome 是该容器中的受管理子进程，不是把浏览器界面嵌入服务端进程。挂载 profiles、spool、artifacts，与 SQLite 卷隔离。
+- **server 容器**：Node.js/Fastify、API、调度、通知、嵌入式 SQLite。单实例。只绑定部署目录 `./data/database`，不包含 Chrome/Xvfb；优雅关闭时停止新调度并提交短事务。
+- **browser-worker 容器**：真实有界面 Google Chrome、Node 执行器、直接 CDP 适配层、可信插件、Xvfb/窗口管理器、VNC/noVNC。Chrome 是该容器中的受管理子进程，不是把浏览器界面嵌入服务端进程。分别绑定部署目录 `./data/profiles`、`./data/spool`、`./data/artifacts`，与 `./data/database` 目录隔离；迁移时可连同部署目录整体搬迁，停止服务后保留权限及符号链接。
 
 server 与 worker 内网通信，worker 主动领取并上报，CDP 和原生 VNC 不映射公网。不把 Docker socket 挂进 server 来实现强杀容器；无法确认旧进程停止时按已有 RECOVERING/人工处理，不扩展服务端宿主权限。已有 NGINX 在宿主机时 API 端口只绑定 loopback 或受控私网；NGINX 在容器时接入明确的内部网络，不直接公开 server/worker 管理端口。
 

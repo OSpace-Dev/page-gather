@@ -12,6 +12,7 @@ Node 镜像固定为 `24.15.0-bookworm-slim`，本轮实际镜像内 Node 为 24
 
 ```sh
 export CHROME_VERSION='<完整Chrome-deb版本>'
+bash scripts/init-data.sh
 docker compose config --quiet
 docker compose build --pull browser-worker
 docker compose up -d browser-worker
@@ -86,15 +87,19 @@ docker compose up -d browser-worker
 
 SIGTERM 同步封闭请求与 launch 两道门禁，停止监听并销毁既有控制 socket（包括半包），撤销 noVNC 网关。正常停止先用有界 CDP `Browser.close` 请求 Chrome 退出并等待，给 Cookie 数据库等完成正常落盘的机会，然后回收全部已登记进程组；正常关闭失败仍回收并以非零退出报告失败。直接同时终止 Chrome 和后代曾造成刚写入的持久 Cookie 丢失，本轮修复后已通过同卷重建；这不保证崩溃或断电时持久化。
 
-进程组回收先 SIGTERM，8 秒未退出发 SIGKILL，再确认退出。组长 exit 不等于进程组清空：后代仍存活就保留登记，直到确认组消失才移除。在途 manual-start 无法在停机快照后 spawn；等待请求清理完成后再检查一次组注册表。人工退出则严格先关闭网关、再关闭 websockify、最后关闭 VNC。Compose 预留 30 秒。停止时在途只读请求可能失败，不自动重放。`docker compose down` 保留命名卷；**不要使用 `down -v`**，它会删除用户目录与诊断。
+进程组回收先 SIGTERM，8 秒未退出发 SIGKILL，再确认退出。组长 exit 不等于进程组清空：后代仍存活就保留登记，直到确认组消失才移除。在途 manual-start 无法在停机快照后 spawn；等待请求清理完成后再检查一次组注册表。人工退出则严格先关闭网关、再关闭 websockify、最后关闭 VNC。Compose 预留 30 秒。停止时在途只读请求可能失败，不自动重放。`docker compose down` 不删除绑定的部署目录 data；不要直接删除 data 或在两个实例间同时共享档案。
 
-| 命名卷 | 容器目录 | P1 用途 |
+| 部署目录下的宿主相对路径 | 容器目录 | P1 用途 |
 |---|---|---|
-| profiles | /data/profiles | main 完整用户目录、诊断状态快照 |
-| spool | /data/spool | 预留持久目录；未实现任何上报/回放协议 |
-| artifacts | /data/artifacts | 显式截图；无自动清理 |
+| ./data/profiles | /data/profiles | main 完整用户目录、诊断状态快照 |
+| ./data/spool | /data/spool | 预留持久目录；未实现任何上报/回放协议 |
+| ./data/artifacts | /data/artifacts | 显式截图；无自动清理 |
 
-首次空命名卷从镜像继承目录权限；已有卷必须由管理员确认归属 node UID/GID（镜像通常为 1000:1000，部署时核实），不可 chmod 777 或以 root 运行 Chrome。不要两容器共享并发操作同一 main 档案。Chrome profile 锁冲突会失败，不自动删除 SingletonLock；确认所有旧 Chrome 已停止后再人工修复。只在 Chrome 完全停止时备份完整 profiles。`--password-store=basic` 避免容器缺少桌面 keyring 导致交互阻塞，但**不提供密钥环级保护**：卷和备份均视为敏感凭据，限制宿主权限并采用磁盘/备份加密。截图同样敏感，不经公网提供。
+先在 Linux/WSL 部署目录运行 `bash scripts/init-data.sh`；脚本使用 Python 3，只创建固定子目录并检查权限、符号链接和 Unix socket 能力，不递归改权、不覆盖内容。当前匹配 node 用户 1000:1000，data 及子目录为 0700；已有错误权限拒绝启动，需要管理员明确处理。Compose 设置 `create_host_path: false`，缺失目录不会被自动建成 root 所有。
+
+活动 Chrome 档案要求原生 Linux 权限和文件锁，WSL 使用 ext4 内的完整部署 checkout；Windows 挂载盘若能力检查失败，将整个部署目录移到 WSL Linux 文件系统，不通过外置数据目录或 chmod777 掩盖问题。data 在 Git 和 Docker 上下文中忽略，所有运行数据都在部署目录内，便于停机后整体备份迁移。
+
+不要两容器共享并发操作同一 main 档案。Chrome profile 锁冲突会失败，不自动删除 SingletonLock；确认所有旧 Chrome 已停止后再人工修复。只在 Chrome 完全停止时备份完整 profiles。`--password-store=basic` 避免容器缺少桌面 keyring 导致交互阻塞，但**不提供密钥环级保护**：卷和备份均视为敏感凭据，限制宿主权限并采用磁盘/备份加密。截图同样敏感，不经公网提供。
 
 ## 6. 回归与目标环境验收
 
@@ -113,7 +118,7 @@ export CHROME_VERSION='<已确认可下载的完整Chrome-deb版本>'
 bash scripts/verify-p1-container.sh
 ```
 
-脚本验证真实 Chrome/CDP、sandbox 页面、fixture 导航/PNG、MANUAL 互斥、RFB 输入与 Origin、入口撤销、持久 HttpOnly Cookie/localStorage 同卷重建、重启 PAUSED/unknown、内部服务网卡隔离和正常停止；退出时停容器、清理该项目网络、保留卷，不删除用户目录。日志只放系统临时目录，不提交。RFB 自动化通过不等于已经人工浏览器点击 noVNC UI。
+脚本验证真实 Chrome/CDP、sandbox 页面、fixture 导航/PNG、MANUAL 互斥、RFB 输入与 Origin、入口撤销、持久 HttpOnly Cookie/localStorage 同目录重建、重启 PAUSED/unknown、内部服务网卡隔离和正常停止；使用唯一测试 project 和系统临时部署副本，bind 数据位于该副本的 data，不触碰人工预览；默认端口16080，可用 `PAGE_GATHER_INTEGRATION_PORT` 指定其他非6080端口，退出停测试容器及网络，保留临时部署数据和日志用于诊断。日志不提交。RFB 自动化通过不等于已经人工浏览器点击 noVNC UI。
 
 用户目标环境仍须逐项复验：镜像与软件版本、安全策略和实际 sandbox；浏览器打开 noVNC UI 的真实人工操作；默认来源可连及异常来源 403；宿主/外网原始 VNC/CDP/6081 不可连接；真实站点手动登录、同卷重建后会话重新探测；SIGTERM 无残留。开发容器的合成 Cookie 不能证明网站登录有效。开发交付已通过 Reviewer 完整评审和修复复审，见 [评审记录](reviews/p1-development-review.md)。服务器与真实账号验收由用户执行；不能将开发合成结果当作目标环境已完成。本轮不进入 P2–P5。
 

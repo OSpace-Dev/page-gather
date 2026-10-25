@@ -1,6 +1,6 @@
 # WSL 开发环境直观验收
 
-P1 开发交付与自动化合成验收已通过，Reviewer 完整评审通过。当前保留 WSL 测试容器供用户直观查看；服务器部署验收以后再做，不是当前开发工作的门槛。
+原P1开发交付与自动化合成验收已通过，Reviewer原完整评审通过；当前bind存储修订复审通过。当前保留 WSL 测试容器供用户直观查看；服务器部署验收以后再做，不是当前开发工作的门槛。
 
 ## 1. 打开 Chrome 桌面
 
@@ -10,7 +10,7 @@ Windows 浏览器访问：
 
 点击 Connect，即可看到 WSL Docker 容器中的真实有界面 Chrome。地址须使用 `127.0.0.1`，默认 Origin 白名单不接受 `localhost`。本轮已确认该地址返回 HTTP 200，实际人工 UI 操作由用户查看。
 
-保留容器名：`page-gather-p1-dev-browser-worker-1`，独立 Compose project：`page-gather-p1-dev`。原 profiles/spool/artifacts 卷保留，当前人工模式 MANUAL，无自动采集、周期调度或签到；session 显示 unknown，不把测试标记当真实登录。
+保留容器名：`page-gather-p1-dev-browser-worker-1`，独立 Compose project：`page-gather-p1-dev`。当前从 WSL ext4 的完整部署副本运行，三个目录绑定在该部署副本 `./data/{profiles,spool,artifacts}` 内，原命名卷仅保留作回退，不再用来运行；容器为 MANUAL，无自动采集、周期调度或签到。session 状态取决于用户操作，不把历史测试标记当真实登录。
 
 Chrome 地址栏可访问容器内测试页 `http://127.0.0.1:8080/`，也可打开 `chrome://sandbox` 查看沙箱。这里 8080 是容器内 fixture 地址，未发布到 Windows。人工模式中可按自己需要手动访问网站，登录状态会进入 profiles 卷；勿将账户截图、Cookie 或用户目录提交仓库。
 
@@ -46,19 +46,28 @@ wsl -d Ubuntu-22.04 -- docker exec page-gather-p1-dev-browser-worker-1 node apps
 
 ## 4. 保留与停止
 
-当前保持容器运行；Docker/WSL 关闭后容器可能停止，因为 Compose 配置不自动重启。再次启动在 **WSL 内仓库根目录**执行，不需要重建：
+当前保持容器运行；Docker/WSL 关闭后容器可能停止，因为 Compose 配置不自动重启。Windows 源码 checkout 与 WSL 运行部署副本分开，活动数据只在 WSL 部署副本 data 内，不是 Windows 源码目录的 data。不要从 Windows 挂载盘直接重建预览，避免另起空档案或不兼容文件系统。
 
-```sh
-CHROME_VERSION=156.0.8078.47-1 docker compose -p page-gather-p1-dev up -d --no-build browser-worker
-docker compose -p page-gather-p1-dev exec browser-worker node apps/worker/src/cli.js manual-start
+仅重新启动现有容器，可在 Windows 终端执行：
+
+```powershell
+wsl -d Ubuntu-22.04 -- docker start page-gather-p1-dev-browser-worker-1
+wsl -d Ubuntu-22.04 -- docker exec page-gather-p1-dev-browser-worker-1 node apps/worker/src/cli.js health
+wsl -d Ubuntu-22.04 -- docker exec page-gather-p1-dev-browser-worker-1 node apps/worker/src/cli.js manual-start
 ```
 
-仅重启现有容器也可使用 `docker start page-gather-p1-dev-browser-worker-1`，等待 health 正常后执行 manual-start。每次重启人工入口默认关闭，登录状态重新视为 unknown。需要主动停止时：
+需要定位当前部署副本以更新或整体迁移时，在 WSL 终端通过 Docker 的工作目录标签切换（不在文档固定本机真实路径）：
+
+```sh
+cd "$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' page-gather-p1-dev-browser-worker-1)"
+```
+
+确认该目录是预期部署副本后再操作 compose；本地忽略文件 `.deployment-source.json` 记录源码来源和迁移校验摘要，不进入 Git 或镜像。需要主动停止时：
 
 ```powershell
 wsl -d Ubuntu-22.04 -- docker stop --time 30 page-gather-p1-dev-browser-worker-1
 ```
 
-不要删除卷或执行 `down -v`。自动化 `scripts/verify-p1-container.sh` 会管理并清理自己项目的容器，而且已有预览容器时会拒绝运行；需要重跑时先明确停止、移除该开发容器，避免打断人工操作。当前无需重新运行该脚本。
+不要删除部署副本的 data。`scripts/verify-p1-container.sh` 已使用唯一测试 project 和临时部署根，默认端口 16080，不触碰预览 data；可用 `PAGE_GATHER_INTEGRATION_PORT` 选择其他非6080端口，结束只清理测试容器与网络。预览可继续保留供人工验收。
 
 此入口仅供可信本机用户，不公开发布、不修改真实服务器或现有 NGINX。后续部署时参考 [服务器部署手册](P1-deployment.md)，当前不用执行。

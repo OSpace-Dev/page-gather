@@ -14,16 +14,25 @@ services:
       - seccomp=./infra/browser/seccomp/chrome-userns-amd64.json
     environment:
       DISPLAY: :99
+      PAGE_GATHER_NOVNC_ORIGINS: ${PAGE_GATHER_NOVNC_ORIGINS:-http://127.0.0.1:6080}
     ports:
-      - "127.0.0.1:6080:6080"
+      - "127.0.0.1:${PAGE_GATHER_PORT:-6080}:6080"
     volumes:
-      - profiles:/data/profiles
-      - spool:/data/spool
-      - artifacts:/data/artifacts
+      - type: bind
+        source: ./data/profiles
+        target: /data/profiles
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/spool
+        target: /data/spool
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/artifacts
+        target: /data/artifacts
+        bind:
+          create_host_path: false
     # 仅本项目使用基于 Moby v28.3.3 的受限 userns profile，依据见 infra/browser/seccomp/README.md。
     # 不映射 CDP/VNC，不挂 Docker socket，不添加 privileged 或 SYS_ADMIN。
     # 不设置 no-new-privileges：某些内核需要 Chrome 自带 setuid 沙箱。
-volumes:
-  profiles:
-  spool:
-  artifacts:

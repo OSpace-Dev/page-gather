@@ -207,7 +207,7 @@ test('CLI 传输错误与超时有界，不自动重试', async () => {
 test('部署静态安全边界：非 root、loopback 发布、无 CDP/VNC 映射', async () => {
   const compose = await readFile('compose.yaml', 'utf8'); const dockerfile = await readFile('infra/browser/Dockerfile', 'utf8');
   const supervisor = await readFile('apps/worker/src/supervisor.js', 'utf8');
-  assert.match(compose, /127\.0\.0\.1:6080:6080/);
+  assert.match(compose, /127\.0\.0\.1:\$\{PAGE_GATHER_PORT:-6080\}:6080/);
   assert.doesNotMatch(compose, /["']?\d+:9222|["']?\d+:5900|privileged:\s*true|docker\.sock/);
   assert.match(dockerfile, /USER node/); assert.match(dockerfile, /linux\/amd64/);
   assert.match(supervisor, /--remote-debugging-address=127\.0\.0\.1/);

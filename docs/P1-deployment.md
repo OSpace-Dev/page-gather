@@ -29,11 +29,12 @@ Chrome 构建要求显式的完整 deb 版本，先从 Google 官方 APT 仓库�
 
 ```sh
 export CHROME_VERSION='<可下载的完整Chrome-deb版本>'
+bash scripts/init-data.sh
 docker compose -p page-gather config --quiet
 docker compose -p page-gather build --pull browser-worker
 ```
 
-可在仓库根 `.env` 保存 `CHROME_VERSION`，它被 Git 忽略；不放账号密码或 Cookie。Google 可能下架旧版本，不能保证每个历史版本都能重新下载。成功构建后保存镜像供回滚；系统包尚未快照锁定，以实际镜像为准。
+可在仓库根 `.env` 保存 `CHROME_VERSION`，它被 Git 忽略；不放账号密码或 Cookie。初始化需要 Python 3，在 Linux/WSL 原生文件系统内执行，当前匹配镜像 node 的 UID/GID 1000:1000 和 0700 数据目录；脚本拒绝不兼容的权限、链接或已有错误目录，不递归改权。不同运行 UID 的部署要先明确适配镜像和初始化逻辑，不用 root 启动 Chrome 或 chmod 777 绕过。Google 可能下架旧版本，不能保证每个历史版本都能重新下载。成功构建后保存镜像供回滚；系统包尚未快照锁定，以实际镜像为准。
 
 ## 3. 启动与基本检查
 
@@ -48,7 +49,7 @@ docker compose -p page-gather exec -T browser-worker node apps/worker/src/cli.js
 
 如果启动失败，先检查版本、卷权限、共享内存、宿主沙箱兼容性。日志刻意不打印 Chrome 页面和账号信息；不要为排错把所有浏览器调试输出上传公共仓库。不要为了启动成功添加 privileged、SYS_ADMIN 或关闭沙箱。
 
-固定使用 Compose project `page-gather`。命名卷包含项目名前缀，后续 stop/up/备份必须使用同一个 project，否则可能看起来像丢失了登录档案。容器默认不自动重启，运行异常需要先检查再启动。
+固定使用 Compose project `page-gather` 管理容器与网络。数据位置由部署目录下 `./data/` 决定，不再依赖 Docker 命名卷的项目前缀；启动必须使用预期部署目录中的 compose 文件。容器默认不自动重启，运行异常需要先检查再启动。
 
 ## 4. 本地 fixture 验证
 
@@ -103,32 +104,50 @@ docker compose -p page-gather exec -T browser-worker node apps/worker/src/cli.js
 
 如果还在 MANUAL 模式，则使用 `manual-finish --config /run/page-gather/probe.json`，先撤销输入再探测。同源重定向、DOM 规则或 SPA 加载时机仍会影响结果，unknown 不等于登出；探测页面由可信部署者选择，P1 不接受不可信用户 URL。不执行签到或写入动作。
 
-## 7. 持久化与备份
+## 7. 部署目录持久化与备份
 
-固定命名卷：`page-gather_profiles`、`page-gather_spool`、`page-gather_artifacts`。先用 `docker volume inspect` 确认实际名称；不要将其输出中的宿主位置写入项目或公共日志。
+默认目录结构如下，数据不打入镜像、不进入 Git：
 
-停止 Chrome 后再备份，不在线复制活动用户目录：
+```text
+page-gather/
+  compose.yaml
+  data/
+    profiles/       # Chrome 用户目录 main/ 及运行状态
+    spool/          # 暂存结果，P1 仅预留
+    artifacts/      # 截图等诊断文件
+    database/       # 后续中心服务的 SQLite；P1 尚未创建/使用
+```
+
+使用 bind mount 将前三个目录分别挂入容器 `/data/profiles`、`/data/spool`、`/data/artifacts`；后者是容器内约定路径。Compose 不自动创建缺失宿主目录，先按初始化步骤创建，避免误用 root 所有的空目录。使用支持 Linux 权限、符号链接和文件锁的本地文件系统；WSL 推荐 Linux 原生文件系统部署目录，不直接把活动 Chrome 档案放在 Windows 挂载盘。
+
+先正常停止 Chrome，再备份整个 data。部署目录内备份只放统一的 `./backups/`，该目录在 Git、Docker 上下文和集成复制中排除；也可放部署目录之外。不要放入其他部署子目录或data内。下例使用部署根内backups，归档名必须不存在：
 
 ```sh
 set -e
+worker_id=$(docker compose -p page-gather ps -aq browser-worker)
+test -n "$worker_id"
 docker compose -p page-gather stop browser-worker
+test "$(docker inspect --format '{{.State.Running}}:{{.State.Pid}}:{{.State.ExitCode}}' "$worker_id")" = 'false:0:0'
+BACKUP_DIR="${PWD}/backups"
 mkdir -p "${BACKUP_DIR}"
 chmod 700 "${BACKUP_DIR}"
-test ! -e "${BACKUP_DIR}/profiles.tar.gz"
+test ! -e "${BACKUP_DIR}/page-gather-data.tar.gz"
 umask 077
 docker run --rm --network none --entrypoint tar \
-  --user 0:0 -v page-gather_profiles:/source:ro \
+  --user 0:0 --mount "type=bind,source=${PWD}/data,target=/source,readonly" \
   page-gather-browser-worker -C /source -czf - . \
-  > "${BACKUP_DIR}/profiles.tar.gz"
-test -s "${BACKUP_DIR}/profiles.tar.gz"
-test "$(stat -c %u "${BACKUP_DIR}/profiles.tar.gz")" = "$(id -u)"
-test "$(stat -c %a "${BACKUP_DIR}/profiles.tar.gz")" = 600
-gzip -t "${BACKUP_DIR}/profiles.tar.gz"
+  > "${BACKUP_DIR}/page-gather-data.tar.gz"
+test -s "${BACKUP_DIR}/page-gather-data.tar.gz"
+test "$(stat -c %u "${BACKUP_DIR}/page-gather-data.tar.gz")" = "$(id -u)"
+test "$(stat -c %a "${BACKUP_DIR}/page-gather-data.tar.gz")" = 600
+gzip -t "${BACKUP_DIR}/page-gather-data.tar.gz"
 ```
 
-上例 `/source` 是备份辅助容器路径。归档经标准输出，由宿主部署用户在 `umask 077` 下创建；辅助容器不挂载可写备份目录，避免生成宿主 root 所有的文件。请使用不存在的新备份文件名，不能覆盖已有宽权限文件（umask 不改变现有文件权限）。任一命令失败都停止后续更新，保留原卷；非空和 gzip 校验不替代恢复演练。`page-gather-browser-worker` 是默认 Compose 构建镜像名，以实际 `docker compose images` 为准；根用户仅在断网备份辅助容器读取卷，绝不用 root 运行 Chrome。相同方式备份 spool/artifacts，使用不同文件名；备份应保存在受保护存储，采用加密和保留策略，不把凭据卷上传 Git。
+`/source` 是辅助容器路径；辅助 root 仅只读源目录，不启动 Chrome，不挂载可写备份目录。归档由宿主普通部署者创建，保留源文件权限、UID/GID与符号链接。默认镜像名为 `page-gather-browser-worker`，以实际 `docker compose images` 为准。备份放在受保护存储并加密；不要提交、公开日志或打印凭据文件内容。备份读取失败或退出状态不是 `false:0:0` 必须停止后续更新并保留原数据；异常停止可能未落盘，不能继续将归档称为一致性备份。若只为保全现场另做归档，应明确标记未确认一致性并人工处理。非空/gzip检查不替代恢复演练。
 
-恢复时先停止 worker，将备份解压至新的空卷并验证所有权，保留旧卷直到确认可用。不要覆盖运行中的档案或自动删除 SingletonLock；跨主机恢复可能需要重新登录。命名卷重建与真实账号保持均由用户核验。
+迁移时停止原服务，将代码/compose 和整个 data 复制到目标部署目录，使用 tar 或保留权限、所有权与符号链接的工具。目标服务先不启动，核对归属与内容、初始化检查通过后再启动；禁止两实例同时访问同一 Chrome 档案。恢复备份时解压到新的空目录并校验，不覆盖正在使用的 data，保留原目录直至确认成功。容器运行 UID/GID 改变或跨主机 Chrome 加密环境变化，可能需要修正权限或重新手动登录，不能保证复制目录就保留所有网站会话。
+
+旧命名卷不会自动删除。已经运行旧版的实例先停止，将旧三个卷完整复制到新空子目录并核对后切换；原卷留作回退，不能直接以空 data 覆盖或自动清理锁文件。WSL 当前预览迁移结果见 [开发验收记录](P1-verification.md)，用户服务器以后再部署。
 
 ## 8. 更新、回滚与故障处理
 
@@ -148,7 +167,7 @@ Chrome 更新可能升级档案格式；回滚旧浏览器不能保证能读取�
 - profile 锁冲突：确认没有另一容器共享该档案；不自动删锁。
 - 磁盘不足：先停新操作，保留 profiles 和未确认 spool；清理前做备份。
 
-`docker compose down` 保留命名卷；**不要使用 `down -v`**，它删除登录档案与诊断。故障时只管理 Page Gather 项目，不运行全局 Docker 清理。
+`docker compose down` 不删除 bind mount 的 data 目录；仍不要使用无关卷删除或全局清理命令。真正删除部署目录/data 会丢失登录档案与诊断，删除前必须明确备份。
 
 ## 9. 服务器验收清单
 

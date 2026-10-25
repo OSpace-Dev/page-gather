@@ -7,6 +7,7 @@ import { Cdp, CdpPage } from '../src/cdp.js';
 import { requestWorker } from '../src/cli.js';
 
 const mode = process.argv[2];
+const origin = process.env.PAGE_GATHER_NOVNC_ORIGINS ?? 'http://127.0.0.1:6080';
 setTimeout(() => { console.error('CONTAINER_INTEGRATION_TIMEOUT'); process.exit(1); }, 60000).unref();
 const fixture = 'http://127.0.0.1:8080/';
 const probe = { url: fixture, validSelector: '[data-session="valid"]', loginSelector: '#login-required', challengeSelector: '#challenge-required' };
@@ -15,7 +16,7 @@ const report = (name, evidence) => console.log(JSON.stringify({ check: name, evi
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // HTTP Upgrade + 二进制 WebSocket + RFB 3.8，后端必须是真实 websockify/x11vnc。
-async function tunnel(origins = ['http://127.0.0.1:6080']) {
+async function tunnel(origins = [origin]) {
   const socket = createConnection({ host: '127.0.0.1', port: 6080 });
   let input = Buffer.alloc(0); let ended = false; let failure;
   socket.on('data', data => { input = Buffer.concat([input, data]); });
@@ -31,7 +32,7 @@ async function tunnel(origins = ['http://127.0.0.1:6080']) {
     }
   }
   await until(() => socket.readyState === 'open');
-  socket.write(['GET /websockify HTTP/1.1', 'Host: 127.0.0.1:6080', 'Upgrade: websocket', 'Connection: Upgrade',
+  socket.write(['GET /websockify HTTP/1.1', `Host: ${new URL(origin).host}`, 'Upgrade: websocket', 'Connection: Upgrade',
     `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`, 'Sec-WebSocket-Version: 13', 'Sec-WebSocket-Protocol: binary',
     ...origins.map(origin => `Origin: ${origin}`), '', ''].join('\r\n'));
   await until(() => input.includes('\r\n\r\n'));
@@ -144,7 +145,7 @@ if (mode === 'core') {
     for (const command of ['connect', 'navigate', 'read', 'screenshot', 'probe']) {
       await assert.rejects(call(command, { selector: 'h1', ...(command === 'probe' ? { probe } : {}) }), /MANUAL_ACTIVE/);
     }
-    for (const origins of [[], ['null'], ['https://evil.invalid'], ['http://localhost:6080'], ['http://127.0.0.1:6080', 'http://127.0.0.1:6080']]) {
+    for (const origins of [[], ['null'], ['https://evil.invalid'], ['http://localhost:6080'], [origin, origin]]) {
       const denied = await tunnel(origins); assert.equal(denied.status, 403); denied.socket.destroy();
     }
     const disconnected = await tunnel(); assert.equal(disconnected.status, 101); await disconnected.handshake(); disconnected.socket.destroy();
