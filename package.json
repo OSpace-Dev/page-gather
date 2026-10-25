@@ -1,0 +1,14 @@
+{
+  "name": "page-gather",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0 <25" },
+  "scripts": {
+    "test": "node --test apps/worker/test/*.test.js",
+    "check:deps": "node scripts/check-dependencies.js",
+    "check:privacy": "node scripts/check-privacy.js",
+    "check": "npm run check:deps && npm test && npm run check:privacy",
+    "worker:cli": "node apps/worker/src/cli.js"
+  }
+}

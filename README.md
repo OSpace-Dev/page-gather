@@ -1,17 +1,31 @@
-# 浏览器自动化与数据中心
+# Page Gather / 拾页
 
-本仓库当前处于设计阶段。目标是为个人账号提供每天运行的网站采集、少量签到操作、数据查看和 iOS PWA 通知。面向 CPU 资源较低、内存充足的服务器，默认采用 SQLite 嵌入中心服务，浏览器任务串行运行。浏览器控制使用直接 CDP，不使用 Playwright。
+个人网站采集项目，采用真实有界面 Google Chrome 与直接 CDP，复用用户在该浏览器手动登录的持久目录。不会保证防检测或不封号。
 
-## 文档入口
+**阶段：P0 设计基线已保留；P1 最小代码已实现、本地无 Chrome 测试通过，容器和真实站点验收待完成。P2–P5 未实现。** 当前没有中心服务、Web 管理端、每日调度、业务采集插件、入库或推送，不会默认访问真实站点或自动点击。
 
-1. [需求与功能设计](docs/01-product-design.md)：范围、使用流程、页面、验收标准。
-2. [系统架构设计](docs/02-architecture.md)：部署、浏览器会话、调度、恢复、安全和技术决策。
-3. [插件、数据与接口设计](docs/03-contracts.md)：插件边界、数据模型、接口及幂等协议。
-4. [实施与验证计划](docs/04-delivery-plan.md)：分阶段落地、验证场景和待确定事项。
-5. [图形设计说明](docs/diagrams/README.md)：可编辑 draw.io 图和阅读指引。
-6. [设计评审记录](docs/reviews/design-review.md)：评审意见、P1 修订方案与暂缓项。
-7. [技术选型与容量评估](docs/05-technology-evaluation.md)：SQLite 增长、Vue/React 与组件库、现有 NGINX 接入及 Chrome 容器边界。
+## P1 快速入口
 
-设计版本：v0.1。用户已确认的约束见需求文档，其余默认值是建议，可继续讨论调整。此版本不包含业务实现、实际站点账号或凭据。
+- [P1 中文使用说明](docs/P1-usage.md)：amd64 容器构建、人工 noVNC、显式 CLI、持久化、安全边界和验收步骤。
+- [P1 验证记录](docs/P1-verification.md)：准确区分已验证、静态检查、待验证和限制。
+- `infra/browser/Dockerfile`、`compose.yaml`：Chrome/Xvfb/Openbox/VNC/noVNC/Node 同容器，非 root，CDP 仅容器 loopback，noVNC 只发布宿主 loopback。
+- `apps/worker/src/`：原生 WebSocket CDP SDK、互斥控制器、进程监督与显式 CLI。零第三方 npm 依赖。
 
-推荐阅读顺序：需求 → 架构图 → 架构说明 → 执行流程图 → 接口设计 → 实施计划。
+```sh
+npm ci --ignore-scripts
+npm run check
+```
+
+需 Node 24；Docker 启动需明确指定可用的完整 Chrome deb 版本，详见使用说明。当前开发环境无 Docker，**没有声称容器构建、沙箱、远程桌面或真实登录已验证**。
+
+## 设计文档
+
+1. [需求与功能设计](docs/01-product-design.md)
+2. [系统架构设计](docs/02-architecture.md)
+3. [插件、数据与接口设计](docs/03-contracts.md)
+4. [实施与验证计划](docs/04-delivery-plan.md)
+5. [技术选型与容量评估](docs/05-technology-evaluation.md)
+6. [图形设计说明](docs/diagrams/README.md)
+7. [设计评审记录](docs/reviews/design-review.md)
+
+01–05 为原设计基线；其中“当前仅设计”等历史描述指设计交付时点。本轮只按用户授权新增 P1 最小实现，不代表其中中心服务、幂等上报、水位、调度、通知等设计已落地。服务器系统/资源/架构及首站点未知，必须在目标环境完成 P1 验收后再进入下一阶段。

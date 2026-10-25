@@ -1,0 +1,26 @@
+name: page-gather
+services:
+  browser-worker:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: infra/browser/Dockerfile
+      args:
+        CHROME_VERSION: ${CHROME_VERSION:?请明确设置可用的完整 Chrome deb 版本}
+    shm_size: 512mb
+    stop_grace_period: 30s
+    restart: "no"
+    environment:
+      DISPLAY: :99
+    ports:
+      - "127.0.0.1:6080:6080"
+    volumes:
+      - profiles:/data/profiles
+      - spool:/data/spool
+      - artifacts:/data/artifacts
+    # 不映射 CDP/VNC，不挂 Docker socket，不添加 privileged 或 SYS_ADMIN。
+    # 不设置 no-new-privileges：某些内核需要 Chrome 自带 setuid 沙箱。
+volumes:
+  profiles:
+  spool:
+  artifacts:

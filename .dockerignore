@@ -1,0 +1,10 @@
+.git
+node_modules
+.env
+.env.*
+data
+profiles
+spool
+artifacts
+coverage
+*.log

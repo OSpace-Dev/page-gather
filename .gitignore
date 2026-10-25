@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.*
+!.env.example
+data/
+profiles/
+spool/
+artifacts/
+*.log
+*.sock
+coverage/
+probe.local.json
