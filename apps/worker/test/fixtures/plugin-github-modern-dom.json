@@ -1,0 +1,28 @@
+{
+  "url": "https://github.com/Modern/Project",
+  "tree": ["main", {},
+    ["div", {"id": "repository-container-header"}],
+    ["table", {"aria-labelledby": "folders-and-files"},
+      ["tr", {}, ["td", {}, ["a", {"href": "/Modern/Project/blob/main/README.md"}, "README.md"]]],
+      ["tr", {}, ["td", {}, ["a", {"href": "/Modern/Project/blob/main/README.zh-CN.md"}, "README.zh-CN.md"]]]
+    ],
+    ["div", {},
+      ["div", {"itemscope": "", "itemtype": "https://schema.org/abstract"},
+        ["h2", {}, "Repository files navigation"],
+        ["nav", {"aria-label": "Repository files"},
+          ["ul", {"role": "list"},
+            ["li", {}, ["a", {"href": "#", "aria-current": "page"}, ["span", {}, "README"]]],
+            ["li", {}, ["a", {"href": "#"}, ["span", {}, "Apache-2.0 license"]]]
+          ]
+        ]
+      ],
+      ["div", {"data-hpc": "true"},
+        ["article", {"class": "markdown-body entry-content container-lg", "itemprop": "text"},
+          "Modern rendered README fixture. ",
+          ["a", {"href": "/Modern/Project/blob/main/docs/README.md"}, "Documentation"]
+        ]
+      ]
+    ],
+    ["aside", {}, ["a", {"href": "#readme-ov-file"}, "Readme"]]
+  ]
+}

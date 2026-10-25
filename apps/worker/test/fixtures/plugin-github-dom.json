@@ -1,0 +1,23 @@
+{
+  "list": {
+    "url": "https://github.com/trending?since=daily",
+    "rows": [{ "href": "/Alpha/One", "description": "Alpha tools", "language": "JavaScript", "stars": "1,234", "dailyChange": "56 stars today" }, "/Beta/Two", "/Gamma/Three"]
+  },
+  "repos": {
+    "https://github.com/Alpha/One": {
+      "url": "https://github.com/Alpha/Renamed",
+      "text": "# Alpha\n\nRendered README with a link and an image caption.",
+      "fileHref": "/Alpha/Renamed/blob/release-v2/docs/README.rst"
+    },
+    "https://github.com/Beta/Two": {
+      "url": "https://github.com/Beta/Two",
+      "missing": true,
+      "emptyRepository": true
+    },
+    "https://github.com/Gamma/Three": {
+      "url": "https://github.com/Gamma/Three",
+      "text": "Gamma README",
+      "fileHref": "/Gamma/Three/blob/stable/ReadMe.markdown"
+    }
+  }
+}

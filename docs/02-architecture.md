@@ -100,8 +100,8 @@ SQLite 减少独立服务和部署开销，但不会消除 Chrome 的页面渲�
 首版采用**浏览器档案级提交水位**。档案内所有插件、任务和采集范围共用一个水位，即使业务范围不同也不能让较早采集在较新提交后入库。这是适合个人串行执行的保守选择：可能舍弃尚未入库的旧范围数据，但不会将其悄悄当成最新数据；原结果保留在过期归档，界面提示，并可安排一次新的只读采集。首版不自动合并旧批次中未冲突的实体。
 
 1. 真正开始一次新的采集之前，中心在短事务中校验有效租约、档案独占权和旧执行已停止，为该次采集创建 `collection`，分配数据库全局单调递增 INTEGER `collection_seq`。它表达平台授权的串行采集顺序，不使用 worker 时间、scheduled_for、token 或任务终态排序。ID、序号、档案、执行及参数快照绑定后不可变。
-2. 领取任务不自动产生新采集序号。仅恢复 spool、重传、重新认证或更换租约时沿用原 collection；禁止给旧结果换新序号。重试如果确实重新访问页面采集，必须登记新的 collection，旧结果仍保持原身份。新采集从重新导航/刷新并验证完成的页面读取，不能把旧 spool 或内存结果当成新观察。
-3. 每个 collection 首版只允许一个不可变结果批次。中心签发 collection_id/seq，结果形成后固定 submission_id、业务载荷和 hash。签名/授权元数据（attempt、fencing token、恢复 token）在业务 hash 外；业务 hash 覆盖 collection_id、任务快照标识、scope_key、完整性、items 和 warnings。恢复时授权可更新，但业务内容和 hash 不变。
+2. 领取任务不自动产生新采集序号。仅恢复spool或已封存结果、重传、重新认证或更换租约时沿用原collection；禁止给旧结果换新序号。多步骤插件首次采集创建OPEN检查点，只有第6.3节规定的授权续采可以沿用原collection访问剩余队列。重新刷新列表、重做已完成步骤或已封存结果后重新抓取，均是真正新采集，必须登记新collection；旧结果保持原身份。新采集从重新导航/刷新并验证完成的页面读取，不能把旧spool或内存结果当成新观察。
+3. 每个collection首版只允许一个封存后的不可变结果批次。OPEN阶段检查点可以原子推进，但不能作为最终submissions入库。中心确认封存时固定submission_id、业务载荷和hash，SEALED结果（包括partial）不再增补。签名/授权元数据（attempt、fencing token、恢复token）在业务hash外；业务hash覆盖collection_id、任务快照标识、scope_key、完整性、items和warnings。恢复上报时授权可更新，但业务内容和hash不变。
 4. 入库使用 `BEGIN IMMEDIATE`，在**同一事务**内先查幂等收据，再校验当前提交权限、collection 绑定和档案水位。设 `incoming_seq` 为中心记录的序号，`committed_seq` 为档案最后接受序号：仅 `incoming_seq > committed_seq` 可应用新提交。等于水位但没有原收据是协议冲突，返回 409 并调查，不重新应用。
 5. 接受提交时，实体更新、版本、变化事件、基线、通知/Outbox、submission 收据，以及档案 `committed_seq` 更新必须一起提交。即使内容指纹相同、结果是 PARTIAL 或有效空结果，也推进水位；不能依赖“新增版本”才推进。事务失败全部回滚。执行终态可稍后报告，不参与防覆盖判断。
 6. `incoming_seq < committed_seq` 时整批判为 STALE：只保存不可变的过期收据与归档引用，不修改实体、last_seen、版本、基线或业务通知/Outbox，也不倒退水位。允许对过期结果另行产生一次去重的运维提示。返回 200 与 `disposition=stale`、归档确认后，worker 才可清理本地 spool；归档失败或没有中心确认时继续保留文件。
@@ -113,9 +113,21 @@ SQLite 减少独立服务和部署开销，但不会消除 Chrome 的页面渲�
 
 过期归档是 P1 协议中的业务结果归档，不依赖暂缓的截图附件上传协议。首版采集批次有大小上限，中心将 STALE 业务载荷保存为 `run_submission.archived_payload`（JSON TEXT），和过期收据在同一事务提交；不发送大文件附件。不自动删除未确认归档，首版保留至用户明确清理；界面可在执行详情查看过期原因和归档摘要。
 
-恢复接口返回 `replay_receipt`（已存在收据）、`authorize_upload`（旧执行已停止且无持有者冲突，可使用原 collection 上报）、`blocked`（仍占用/无法确认停止）或 `stale`（原采集低于水位，授权仅归档）。恢复检查只是预检，正式 submissions 接口必须在事务内再次检查水位，避免检查通过后有更新提交先入库。租约无效的 worker 不能利用 stale 分支绕过身份与归档授权。
+恢复接口返回 `replay_receipt`（已存在收据）、`authorize_upload`（已封存结果、旧执行已停止且无持有者冲突，可使用原collection上报）、`authorize_continue`（OPEN检查点满足第6.3节全部条件，可续采剩余队列）、`blocked`（仍占用/无法确认停止）或 `stale`（原采集低于水位，授权仅归档）。恢复检查只是预检，正式submissions及检查点续采接口必须在事务内再次检查条件；租约无效的worker不能利用stale分支绕过身份与归档授权。
 
 如两个提交发生竞争，事务串行化决定可接受顺序：较早先入库可被后续较新采集更新；较新先入库则拒绝较早采集应用。真实采集内容由 A→B→A 时，只要是新的 collection 观察到 A，仍正常产生回退版本；旧 spool 的 A 不产生回退版本。
+
+### 6.3 多步骤插件：OPEN续采与SEALED重传
+
+collection执行生命周期区分OPEN（可变的本地工作检查点）、SEALED（一个固定submission_id/hash的提交载荷）与已应用/归档的终态。检查点不等于已封存结果，也不拥有中心提交权限。
+
+OPEN中断后若要访问剩余队列，平台必须先确认旧持有者停止并重新取得有效租约与档案独占，事务校验：插件/参数/任务快照/原collection匹配；未封存、无原收据；未跨插件观察日期或原deadline；该档案无更晚登记的collection，且档案已提交水位未达到或超过原seq。通过后签发authorize_continue，保持原seq，只允许从原冻结队列恢复，禁止重读列表或改写已完成项。每次后续页面步骤前检查租约、取消与期限；不满足时停止页面访问。
+
+只要新collection已经登记，旧OPEN就不能继续访问页面，即使新任务尚未提交；旧工作结果保留，可封存为partial并按当前水位规则应用或归档，但不能贴新seq。该保守规则避免新旧观察顺序交错，不放宽档案级提交保护。
+
+完成/选择结束partial时，平台以有界seal请求核验原collection与检查点hash，将其CAS封存为SEALED，固定submission身份和业务hash；重复seal同hash返回原封存，不同hash冲突。中心封存状态持久化、worker落盘SEALED后才提交数据；响应丢失查询原封存，不能继续采集。submissions只接受与已封存hash匹配的批次。即使SEALED为partial，也只能重传或归档；要再抓网页必须新collection。用户取消可保留OPEN但不自动恢复，必须显式授权，或选择封存现有partial。
+
+本地SDK阶段可用调用方授权hook测试上述规则，但不能声称已实现中心事务或替代真实授权；完整接线属于P2余下工作。
 
 取消执行只阻止后续操作，不能撤销已发生的签到或已经提交的数据。取消与提交竞争由数据库事务决定，执行详情应准确展示已提交部分。
 

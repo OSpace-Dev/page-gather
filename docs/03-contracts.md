@@ -4,6 +4,8 @@
 
 ## 1. 插件结构
 
+插件承载网站完整流程，不仅是选择器集合。首个GitHub Trending用“列表快照→串行间隔访问项目→README→检查点”验证设计，其他插件可有不同分页、分支和步骤。具体规则及P2接线边界见 [流程插件设计](06-plugin-workflows.md)。现有接口是设计目标，本轮实现中的SDK字段以其代码和README为准，不能将首版内核当成中心/调度均已落地。
+
 建议目录：`plugins/<plugin-id>/manifest.json`、`index.ts`、`schemas/`、`fixtures/`。插件在部署时安装，中心读取注册信息；执行器报告实际已安装版本，版本不匹配不得领取。
 
 manifest 至少包含 id、version、engineApiVersion、名称、允许域名、参数 JSON Schema、输出 Schema、登录要求、能力（collect/query/checkin）和默认超时。任务固定插件版本，执行时保存参数快照；升级采用禁用旧任务、试跑新版本、再切换的流程，不能修改正在执行的代码。
@@ -27,6 +29,9 @@ interface PluginContext {
   signal: AbortSignal;
   log: StructuredLogger;
   artifacts: ArtifactWriter;
+  checkpoint: CheckpointStore;
+  wait(ms: number): Promise<void>;
+  progress(value: StepProgress): void;
 }
 
 interface CollectionResult {
@@ -48,7 +53,7 @@ interface CollectedItem {
 
 省略类型由 SDK 提供；这是接口草案，尚非可编译代码。`CdpPage` 是本项目基于直接 CDP 实现的轻量页面接口，不引用任何 Playwright 类型。其首版方法包括 navigate、waitForCondition、readText、click、captureScreenshot，统一接收超时与取消信号；低层命令由 CDP 适配层统一管理。click 需先验证元素存在、可见与可交互，计算目标位置并通过 Input 发送事件；不能因为命令已发送就认定业务操作成功。`SessionCheck` 至少区分 valid、login_required、challenge_required、unknown；无法判断不得默认有效。`ActionCheck` 至少区分 done、not_done、unknown，并携带站点业务日期与证据摘要。
 
-平台创建和销毁页面、注入超时、收集附件、规范化字段、计算 hash、安排重试。插件不直接写数据库、不发推送、不管理无限重试，也不自行发送最终业务数据。所有浏览器步骤遵守 deadline 与取消信号。
+平台创建和销毁页面、注入超时、收集附件、规范化字段、计算hash、安排受限重试，并提供可取消等待及原子检查点。插件在collect中决定任意流程、循环、分支和逐项访问；每次emit/保存完成项必须和检查点一致性提交，不只写日志。检查点绑定原collection、插件版本与参数，恢复不得重新冻结队列或提升采集顺序。插件不直接写中心数据库、不发推送、不管理无限重试，也不自行发送最终业务数据。所有浏览器步骤遵守deadline、取消信号和平台限速下限。
 
 定位优先使用稳定 DOM 属性和语义，避免固定屏幕坐标和长时间 sleep。CDP 适配层显式处理导航事件竞态、iframe 的执行上下文和独立 target、新标签页、节点失效及输入坐标换算；可配置的条件等待必须有截止时间，不依赖框架自动等待。页面有稳定且已授权可用的数据响应时，可读取当前浏览器会话中的响应；是否使用站点接口由插件实际验证，不假设可以脱离浏览器独立调用。
 
@@ -82,7 +87,7 @@ interface CollectedItem {
 | task_baseline | task_id、scope_key、established_at、last_complete_run_id | 唯一 task_id + scope_key |
 | task_run | id、task_id、trigger、scheduled_for、request_key、status、phase、config_snapshot、plugin_version、attempt、lease_owner、lease_until、fencing_token | 自动任务唯一 task_id + scheduled_for；手动请求键唯一 |
 | run_attempt | id、run_id、attempt、started_at、ended_at、error_code、summary | 唯一 run_id + attempt，保留每次失败证据 |
-| collection | collection_seq、id、run_id、attempt、profile_id、config_snapshot_ref、registration_key、created_at | collection_seq 为 INTEGER PRIMARY KEY AUTOINCREMENT，id 唯一；run_id + registration_key 唯一；采集前由中心分配，绑定不可变 |
+| collection | collection_seq、id、run_id、attempt、profile_id、config_snapshot_ref、registration_key、created_at、lifecycle、sealed_submission_id、sealed_payload_hash | seq为INTEGER PRIMARY KEY AUTOINCREMENT；id、run_id+registration_key唯一；绑定不可变，OPEN检查点可推进，CAS封存后SEALED载荷不可变 |
 | run_submission | id、run_id、collection_id、submission_id、payload_hash、disposition、receipt、archived_payload | submission_id 唯一、collection_id 唯一；同键不同 hash 拒绝；APPLIED 或 STALE 收据不可变，STALE 保存完整业务载荷 |
 | entity | id、source、profile_id、entity_type、source_key、current_version_id、first_seen_at、last_seen_at | 唯一 source + profile_id + entity_type + source_key |
 | entity_version | id、entity_id、fingerprint、fields、observed_at、run_id | 相同内容不重复插入；变化 A→B→A 仍保留回退版本 |
@@ -133,11 +138,12 @@ entity_version 不对全部历史的 `(entity_id, fingerprint)` 设置唯一：�
 | POST /worker/claims | 原子领取，返回配置快照、token 和截止时间；无任务 204 |
 | POST /worker/runs/:id/heartbeat | 续租和进度，返回取消/人工模式信号 |
 | POST /worker/runs/:id/collections | 新采集前申请不可变 collection_id/seq；要求有效租约、档案独占和幂等请求键，重传申请返回原 collection |
-| POST /worker/runs/:id/submissions | 提交采集结果；事务内检查档案提交水位，返回 APPLIED/STALE 收据；同 payload 幂等重传 |
+| POST /worker/runs/:id/collections/:collectionId/seal | CAS封存OPEN检查点及最终载荷hash，固定submission身份；重复同hash幂等，不同hash409，SEALED partial不再续采 |
+| POST /worker/runs/:id/submissions | 仅接受匹配已封存身份/hash的结果，事务内检查档案水位，返回APPLIED/STALE收据；同payload幂等重传 |
 | POST /worker/runs/:id/actions/prepare | 点击前记录稳定操作键，检查有效租约 |
 | POST /worker/runs/:id/actions/:actionId/reports | 记录 dispatch、核验和证据 |
 | POST /worker/runs/:id/outcome | 报告终态及分阶段结果 |
-| POST /worker/runs/:id/recover | 核对暂存结果和操作状态，返回 replay_receipt / authorize_upload / blocked / stale；不为旧结果分配新采集序号 |
+| POST /worker/runs/:id/recover | 核对状态，返回replay_receipt / authorize_upload / authorize_continue / blocked / stale；续采只针对满足架构6.3的OPEN检查点，不改原seq |
 | GET /entities；GET /entities/:id；GET /entities/:id/versions | 数据和历史 |
 | GET /artifacts/:id | 认证后下载附件 |
 | GET /notifications；PATCH /notifications/:id | 站内消息与已读 |
@@ -145,7 +151,7 @@ entity_version 不对全部历史的 `(entity_id, fingerprint)` 设置唯一：�
 | GET /push/public-key；POST /push/subscriptions | 公钥和设备注册 |
 | DELETE /push/subscriptions/:id | 解除本人设备订阅 |
 
-任务执行、采集登记和数据提交使用不同幂等键。collection 登记请求键按 run_id 唯一，中心在创建 collection 的事务内记录该键；响应丢失时重试同键，不生成新序号。每次真正重新采集使用新键，纯恢复/重传绝不申请新 collection。
+任务执行、采集登记和数据提交使用不同幂等键。collection 登记请求键按 run_id 唯一，中心在创建 collection 的事务内记录该键；响应丢失时重试同键，不生成新序号。每次真正重新采集使用新键，纯恢复/重传绝不申请新collection。唯一可沿原collection继续页面访问的情况是未封存OPEN检查点经平台重新授权，条件见 [架构6.3](02-architecture.md#63-多步骤插件open续采与sealed重传)；需要同日期/期限、有效租约与独占、无更晚登记collection且水位未超越。SEALED结果包括partial不能增补，新的网页采集必须新collection。
 
 重复提交相同 submission_id + hash 返回原收据；同 ID 不同 hash、同 collection 不同 submission 返回 409。原收据优先于当前水位判断，已应用提交不能因后续更新而改判过期。有效身份可重取旧收据，新应用或归档必须满足当前租约或恢复授权。
 
