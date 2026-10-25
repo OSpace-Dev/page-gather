@@ -1,0 +1,145 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" version="26.0.0">
+  <diagram id="核心流程 · 每日运行与异常恢复" name="核心流程 · 每日运行与异常恢复">
+    <mxGraphModel adaptiveColors="auto" grid="1" gridSize="10" page="1" pageScale="1" pageWidth="1460" pageHeight="1320">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="核心流程 · 每日运行与异常恢复" style="text;html=0;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=Microsoft YaHei;fontSize=24;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="15" width="1400" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="任务领取前获得浏览器独占权；采集重传与页面重跑分离；签到不确定时只读核验" style="text;html=0;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=Microsoft YaHei;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="58" width="1400" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="start" value="每日到期 / 手动触发&#10;持久化执行记录并幂等去重" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="70" y="125" width="270" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="claim" value="领取任务 + 租约&#10;确认非人工模式 / 锁定档案" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="70" y="265" width="270" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="session" value="检查登录状态" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#fff2cc;strokeColor=#d6b656;spacing=10;shape=rhombus;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="90" y="405" width="230" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="login" value="等待用户&#10;暂停档案 → 人工登录&#10;退出人工模式并重新检查" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#f8cecc;strokeColor=#b85450;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="415" width="290" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="action" value="启用签到？" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#fff2cc;strokeColor=#d6b656;spacing=10;shape=rhombus;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="90" y="575" width="230" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="verify" value="只读检查当天签到状态&#10;已完成跳过；未完成记录意图" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#fff2cc;strokeColor=#d6b656;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="575" width="290" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="click" value="点击并核验结果&#10;操作键唯一 / 点击前记日志" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#fff2cc;strokeColor=#d6b656;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="735" width="290" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="unknown" value="超时 / 断联 / 结果不确定&#10;先只读核验，仍未知则等待用户&#10;禁止盲目再次点击" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#f8cecc;strokeColor=#b85450;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="735" width="350" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="collect" value="登记不可变 collection_seq&#10;刷新页面后采集 / 校验完整性" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="70" y="900" width="270" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="spool" value="原子保存结果到 spool&#10;固定 collection / 提交 ID / hash" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#d5e8d4;strokeColor=#82b366;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="900" width="290" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="commit" value="事务检查档案提交水位&#10;新结果应用 / 旧批次仅归档&#10;数据与收据、水位原子提交" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#d5e8d4;strokeColor=#82b366;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="900" width="350" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="retry" value="上报失败：只重传暂存结果&#10;不重新采集，不重复签到&#10;旧租约先走恢复协议" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#f8cecc;strokeColor=#b85450;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="1070" width="350" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="finish" value="确认收据 → 清理 spool&#10;记录终态 / 释放浏览器&#10;后台投递 Web Push" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#d5e8d4;strokeColor=#82b366;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="1090" width="290" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="crash" value="执行器失联&#10;先确认旧进程停止，再恢复&#10;有副作用先核验" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#f8cecc;strokeColor=#b85450;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="290" width="350" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="只读错误：有限重试&#10;页面改版：修插件&#10;部分数据：不推断删除" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#f5f5f5;strokeColor=#666666;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="900" y="480" width="350" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="start" target="claim">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="claim" target="session">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="失效 / 验证码" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="session" target="login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="检查通过后恢复" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="login" target="claim">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="595" y="240" />
+              <mxPoint x="205" y="240" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e5" value="有效" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="session" target="action">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="否" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="action" target="collect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="action" target="verify">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="明确未完成" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="verify" target="click">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="已完成" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="verify" target="collect">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="400" y="620" />
+              <mxPoint x="400" y="865" />
+              <mxPoint x="205" y="865" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" value="结果不确定" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="click" target="unknown">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="已核验" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="click" target="collect">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="595" y="860" />
+              <mxPoint x="205" y="860" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e12" value="有效结果" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="collect" target="spool">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" value="提交" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="spool" target="commit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" value="失败 / 响应丢失" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="commit" target="retry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" value="相同提交幂等重传" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="retry" target="commit">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1320" y="1120" />
+              <mxPoint x="1320" y="945" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e16" value="APPLIED 或 STALE 归档确认" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="commit" target="finish">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="820" y="945" />
+              <mxPoint x="820" y="1135" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e17" value="租约异常" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="claim" target="crash">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="365" y="305" />
+              <mxPoint x="365" y="230" />
+              <mxPoint x="1075" y="230" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,109 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" version="26.0.0">
+  <diagram id="系统架构 · 个人每日自动化" name="系统架构 · 个人每日自动化">
+    <mxGraphModel adaptiveColors="auto" grid="1" gridSize="10" page="1" pageScale="1" pageWidth="1320" pageHeight="920">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="系统架构 · 个人每日自动化" style="text;html=0;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=Microsoft YaHei;fontSize=24;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="15" width="1260" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="单服务器 Docker Compose；中心模块化单体；Chrome 人工登录与自动执行复用同一持久化档案" style="text;html=0;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=Microsoft YaHei;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="58" width="1260" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="user" value="个人用户&#10;桌面浏览器 / iPhone PWA" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#e1d5e7;strokeColor=#9673a6;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="135" width="250" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="proxy" value="现有 NGINX / 域名 / TLS&#10;Vue 3 静态前端 / API 代理" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="380" y="135" width="270" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="center" value="server 容器 / Node.js&#10;配置 · 调度 · 任务协调&#10;入库 · 变化判断 · 通知" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="380" y="310" width="270" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="db" value="SQLite（中心服务内嵌）&#10;本地持久化卷 / WAL&#10;任务 / 数据 / 通知 / Outbox" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#d5e8d4;strokeColor=#82b366;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="330" width="250" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="worker" value="browser-worker 容器&#10;直接 CDP + 可信代码插件&#10;Chrome / 桌面 / 执行器" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#fff2cc;strokeColor=#d6b656;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="310" width="290" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="chrome" value="有界面 Google Chrome&#10;持久化用户目录&#10;同一环境：人工登录 / 自动执行" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#fff2cc;strokeColor=#d6b656;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="550" width="290" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="manual" value="受保护的远程桌面&#10;noVNC + Xvfb&#10;人工模式持有浏览器锁" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#e1d5e7;strokeColor=#9673a6;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="135" width="290" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="site" value="目标网站&#10;个人登录账号&#10;采集 / 查询 / 少量签到" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#f5f5f5;strokeColor=#666666;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="760" width="290" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="push" value="Web Push 服务&#10;VAPID + 设备订阅&#10;Apple 设备使用其推送设施" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#e1d5e7;strokeColor=#9673a6;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="380" y="550" width="270" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="storage" value="持久化卷&#10;Chrome 档案 / spool&#10;截图 / trace（限期保留）" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#d5e8d4;strokeColor=#82b366;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="330" width="190" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="运行边界&#10;1. 人工与自动互斥&#10;2. 不公开 CDP/VNC&#10;3. 推送不等于已读&#10;4. 登录可过期" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#f5f5f5;strokeColor=#666666;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="580" width="250" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="user" target="proxy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="API" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="proxy" target="center">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="进程内事务访问" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="center" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="领取 / 心跳 / 数据上报" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="worker" target="center">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="控制同一浏览器" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="worker" target="chrome">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="请求 / 释放人工模式" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="manual" target="worker">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="人工桌面" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="manual" target="chrome">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="735" y="185" />
+              <mxPoint x="735" y="605" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e8" value="授权会话访问" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="chrome" target="site">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="暂存 / 附件" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="worker" target="storage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="用户目录" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="chrome" target="storage">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1195" y="605" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e11" value="事务 Outbox → 发送" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="center" target="push">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="系统通知" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="push" target="user">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="330" y="605" />
+              <mxPoint x="330" y="260" />
+              <mxPoint x="165" y="260" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e13" value="受控管理入口" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="user" target="manual">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="165" y="110" />
+              <mxPoint x="925" y="110" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
