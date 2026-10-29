@@ -19,7 +19,7 @@
 
 ## 接线字段
 
-接口前缀 `/api/v1`；API 路由、请求体按 [协作 API 规范](../../docs/07-p2-implementation.md) 实现。管理员写请求必须带配置中的精确 `Origin`，worker Bearer 接口不要求浏览器 Origin。登录使用 `{username:"admin",password}`，会话 Cookie 为 `pg_session`。错误为 `{error:{code,message},requestId}`，message 仅错误码，不含内部异常。
+接口前缀 `/api/v1`；API 路由、请求体按 [协作 API 规范](../../docs/02-design/DES-005-2026-10-25-p2-implementation-contract.md) 实现。管理员写请求必须带配置中的精确 `Origin`，worker Bearer 接口不要求浏览器 Origin。登录使用 `{username:"admin",password}`，会话 Cookie 为 `pg_session`。错误为 `{error:{code,message},requestId}`，message 仅错误码，不含内部异常。
 
 - 列表为 `{items,nextCursor}`；limit 默认 50、最大 200；游标仅用于同一资源。GET entities 支持 q（sourceKey 子串）和 type。
 - tasks 的创建/详情/修改为 `{task}`，plugins 列表仍为 `{items,nextCursor}`。任务需显式给 name/pluginId/pluginVersion，其余默认 main/启用/插件默认 config。预置 GitHub 任务启用但没有 run，不自动执行。

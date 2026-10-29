@@ -1,0 +1,99 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" version="26.0.0">
+  <diagram id="核心数据关系 · 概念模型" name="核心数据关系 · 概念模型">
+    <mxGraphModel adaptiveColors="auto" grid="1" gridSize="10" page="1" pageScale="1" pageWidth="1450" pageHeight="1100">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="核心数据关系 · 概念模型" style="text;html=0;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=Microsoft YaHei;fontSize=24;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="15" width="1390" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="连线标注基数；仅展示主要关系，字段、唯一约束与完整表清单见 DES-002 插件数据契约" style="text;html=0;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=Microsoft YaHei;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="58" width="1390" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="profile" value="browser_profile&#10;人工模式 / 登录状态&#10;committed_collection_seq" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#e1d5e7;strokeColor=#9673a6;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="150" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="plugin" value="plugin_installation&#10;plugin_id + version / 能力 / Schema" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#e1d5e7;strokeColor=#9673a6;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="345" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="task" value="task&#10;插件版本 / 档案 / 参数&#10;本地时间 / 时区 / 下一次时间" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="150" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="baseline" value="task_baseline&#10;任务 + scope_key 唯一&#10;最近完整采集基线" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#d5e8d4;strokeColor=#82b366;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="150" width="330" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="run" value="task_run&#10;计划执行唯一 / 状态 / 阶段&#10;attempt / 租约 / fencing token" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="345" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="submission" value="collection / run_submission / run_attempt&#10;采集序号 / 不可变收据 / 过期归档&#10;每次尝试的错误与证据" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#dae8fc;strokeColor=#6c8ebf;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="345" width="330" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="action" value="action_execution&#10;档案 + 插件 + 操作 + 业务日期唯一&#10;意图 / 点击中 / 核验 / 未知" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#fff2cc;strokeColor=#d6b656;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="550" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="entity" value="entity → entity_version&#10;来源 + 档案 + 类型 + 来源键&#10;当前内容指纹 / 变化版本历史" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#d5e8d4;strokeColor=#82b366;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="550" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="event" value="change_event&#10;每个新版本对应唯一事件&#10;新增 / 重要字段变化" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#d5e8d4;strokeColor=#82b366;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="550" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="notification" value="notification / outbox&#10;站内记录 + 事务待发送事件&#10;通知去重 / 已读状态" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#e1d5e7;strokeColor=#9673a6;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="770" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="delivery" value="push_delivery&#10;通知 + 设备订阅唯一&#10;接受 / 重试 / 永久失败" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#e1d5e7;strokeColor=#9673a6;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="770" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="subscription" value="push_subscription&#10;个人账号 / 多设备&#10;endpoint 唯一 / 公钥与认证信息" style="rounded=1;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=15;fillColor=#e1d5e7;strokeColor=#9673a6;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="770" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="规则：新采集 A→B→A 保留版本；旧结果按档案水位拒绝应用，仅保留归档。&#10;人工与自动共用档案锁；签到键跨版本稳定；未出现不代表删除。" style="text;html=0;align=left;verticalAlign=middle;whiteSpace=wrap;fontFamily=Microsoft YaHei;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="970" width="1300" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="profile" target="task">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="plugin" target="task">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="390" y="390" />
+              <mxPoint x="390" y="205" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e3" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="task" target="baseline">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="task" target="run">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="run" target="submission">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="run" target="action">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="390" y="400" />
+              <mxPoint x="390" y="610" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" value="采集 / 生成版本" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="run" target="entity">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="版本 1 : 0..1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="entity" target="event">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="匹配关注规则" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="event" target="notification">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="notification" target="delivery">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="1 : N" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;endFill=1;fontFamily=Microsoft YaHei;fontSize=12;labelBackgroundColor=#ffffff;strokeColor=#666666;" edge="1" parent="1" source="subscription" target="delivery">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
