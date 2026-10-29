@@ -1,4 +1,4 @@
-# P2 中心服务
+# P2/P3 中心服务
 
 仅 Node 24 内置 HTTP、SQLite、crypto，无 npm 运行依赖。仓库根运行 `node apps/server/server.js`；测试 `node --test apps/server/test/*.test.js`。Docker 使用仓库根上下文和 `apps/server/Dockerfile`，以 node 用户运行；数据库挂载目录需要对容器 UID 1000 可写。凭据文件由部署者生成并赋予最小读取权限，中心不会自动生成或打印密码。
 
@@ -41,4 +41,39 @@ SQLite WAL/FULL/FK/busy_timeout=5000。短事务包含档案锁、幂等判定�
 
 启动将活动 RUNNING 置为 RECOVERING，租约失效同样保留档案锁。取消是请求停止，只有 worker outcome 确认后才释放活动锁。OPEN 不自动续采，失败不会自动创建新 run。无 sealed 包且失联的 run 保持 RECOVERING，直到原 worker 在 controller 锁下确认旧页面停止并取得仅终结授权；不根据租约到期猜测浏览器已停止，不提供匿名解锁接口。
 
-附件未接，认证后的 artifacts 接口返回 501 `ARTIFACT_UPLOAD_NOT_IMPLEMENTED`，不会生成截图。无调度、推送或签到实现。这里的 HTTP/SQLite/SDK 测试不代表实际 GitHub 浏览器采集或服务器部署验收，页面和 worker 的真实闭环由主 agent 集成验证。
+附件未接，认证后的 artifacts 接口返回 501 `ARTIFACT_UPLOAD_NOT_IMPLEMENTED`，不会生成截图。不实现推送、签到或新站点。这里的 HTTP/SQLite/SDK 测试不代表实际 GitHub 浏览器采集或服务器部署验收，页面和 worker 的真实闭环由主 agent 集成验证。
+
+## P3 每日调度接口与生命周期
+
+日程语义遵循 [DES-006](../../docs/02-design/DES-006-2026-10-29-p3-daily-scheduling.md)。任务 POST/PATCH 可提供完整 `schedule:{enabled:false,time:"09:00",timezone:"Asia/Shanghai"}`，只接受这三个字段；HH:mm 和运行时支持的 IANA 时区不合法返回 400（`INVALID_SCHEDULE` / `INVALID_TIMEZONE`）。省略时新建与旧任务迁移都关闭日程；任务本身 enabled 与日程 enabled 必须同时为 true 才安排自动执行。
+
+任务列表、详情和写响应增加：
+
+- `schedule`：规范配置；`scheduleRevision`：从 1 开始的修订号。
+- `nextScheduledAt`：下一次 UTC ISO 时间，禁用为 null；`lastScheduledFor`：最近处理的计划 slot，尚未处理为 null。
+- `scheduleStatus:{state:"DISABLED"|"SCHEDULED",created,skipped,lastReason}`：持久累计摘要。created 仅计实际进入队列的自动 run；skipped 含历史漏跑、占用、过期及修改而作废的队列。lastReason 为最近一次处理的跳过码，正常排队时清空，非错误正文。
+
+仅修改名称/config 保留日程修订与 next，下一次自动 run 快照使用最新参数；修改日程或 task.enabled 则同事务修订并只算修改时刻之后的未来一次。旧 QUEUED 自动 run 转 SKIPPED / `SCHEDULE_CHANGED`，不修改手动 run，不取消 RUNNING，不释放档案锁。schedule 及这些派生字段不是客户端可任意写入的运行状态。
+
+自动 run 保留 `trigger:"scheduled"`、`scheduledFor`（UTC）、`scheduledDate`（当地日期）、`scheduleRevision`，taskSnapshot 另含 schedule 与修订快照；手动 run 仍为 `trigger:"manual"`。SQL 唯一 `(task_id,scheduled_for)` 防重复，自动内部 requestKey 使用手动幂等键无法使用的保留命名空间。tick 创建 run 与推进 next 在同一事务；最近 24 小时内最多补最新一次，多年旧日程只累计摘要，不逐日创建 run。同 task 有 QUEUED/RUNNING/RECOVERING 时不创建 run，仅累计 skipped 摘要、记录 lastReason=`TASK_ACTIVE` 并推进 next；原 run 与档案锁保持不变。`SCHEDULE_DUPLICATE` 和窗口外 `SCHEDULE_EXPIRED` 仅计摘要，不再为同 slot 创建另一条 run。
+
+MANUAL、档案锁或离线阻止实际领取，不阻止排队一个自动 run。claim 前重新校验自动队列：禁用为 `SCHEDULE_DISABLED`，旧修订为 `SCHEDULE_CHANGED`，超过 24 小时为 `SCHEDULE_EXPIRED`；均转 SKIPPED，attempt 保持 0，不访问网页。24 小时边界包含在窗口内。已领取的活动 run 按 P2 ticket/lease/SEALED/finalization 规则处理，不因调度修改擅自终止。自动 claim ticket 的 replay 分支同样核验日程启用、revision 与 24 小时窗口；不再符合时仅返回 finalize_only，保留 RUNNING 状态和档案锁，不能授权重开网页。manual replay 行为不变。worker outcome 不接受 SKIPPED，该状态仅由中心处理未执行的自动队列/slot。
+
+`GET /api/v1/scheduler` 需要管理员 session，直接返回：
+
+```json
+{
+  "enabled": true,
+  "healthy": true,
+  "lastTickAt": "2026-06-01T09:00:00.000Z",
+  "lastErrorCode": null,
+  "nextWakeAt": "2026-06-01T09:01:00.000Z",
+  "stats": { "due": 1, "created": 1, "skipped": 0 }
+}
+```
+
+enabled 表示服务开启调度循环，不表示所有任务启用。lastTickAt 是最近成功 tick；stats 是本进程启动以来成功 tick 的累计值，任务 scheduleStatus 的计数则跨重启持久化。失败后 healthy=false / lastErrorCode=`SCHEDULER_TICK_FAILED`，不返回 SQL、路径或异常原文；下一次成功恢复健康。公开 `/health` 仅增加 `scheduler:{enabled,healthy}`，健康为 200/status=ok，调度失败为 503/status=degraded，不暴露计划/任务/计数。
+
+`Scheduler` 使用最近到期唤醒及最多 60 秒兜底，配置写入后立即重新计算；失败采用 1 秒起、最长 60 秒的指数退避，写配置不绕过退避。原 15 秒 expire 定时器合并到 tick，claim/recover 的即时过期检查保留。`server.close()` 调用即停止 timer，close 事件才关闭自有数据库；外部注入的 Store 仍由调用者在 server 关闭后关闭。可注入 `Store.now`、`Store.tick(now)` 和 `schedulerOptions` 时钟/timer 进行隔离测试，无改时/debug HTTP 端点。
+
+时区计算使用有界 offset 采样、跃迁二分及有界缓存，不逐分钟常驻扫描；DST 重复选早一次，缺失分钟顺延到当天首个有效分钟（纽约 02:30→03:00，Lord Howe 02:15→02:30）。完整缺失的当地日期不生成 slot。

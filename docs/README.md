@@ -1,7 +1,7 @@
 # 文档总导航
 
 > 更新日期：2026-10-29。按开发生命周期组织，阶段内迭代维护。
-> 当前基线：P0设计、P1和P2开发交付已完成；P3–P5未开始。服务器以后由用户部署，不阻塞开发。
+> 当前基线：P0设计、P1–P3开发交付已完成，P4/P5未开始。服务器以后由用户部署，不阻塞开发。
 
 ## 先找执行计划
 
@@ -9,9 +9,11 @@
 |---|---|
 | **看接下来做什么、哪些事还没开始** | **[PLAN-002 当前执行计划](03-planning/PLAN-002-2026-10-29-current-execution-plan.md)** |
 | **看P0–P5阶段与交付边界** | **[PLAN-001 交付路线图](03-planning/PLAN-001-2026-10-25-delivery-roadmap.md)** |
+| 打开当前P3管理页、设置每日计划 | [RUN-006 P3使用说明](04-delivery/RUN-006-2026-10-29-p3-daily-scheduling-usage.md) |
 | 打开P2页面、登录、手动采集和查看README | [RUN-005 P2使用说明](04-delivery/RUN-005-2026-10-25-p2-usage.md) |
 | 找WSL Chrome桌面及人工模式操作 | [RUN-003 P1本地预览](04-delivery/RUN-003-2026-10-25-p1-local-preview.md) |
 | 查是否真实验证通过、有哪些限制 | [VER-002 P2验证记录](05-verification/VER-002-2026-10-25-p2-development-verification.md) |
+| 查P3每日计划是否验证通过 | [VER-004 P3验证记录](05-verification/VER-004-2026-10-29-p3-scheduling-verification.md) |
 | 查评审发现及修复结果 | [REV-005 P2集成评审](06-reviews/REV-005-2026-10-25-p2-integration-review.md) |
 | 看目录、文件名、编号与日期规则 | [AGENTS.md 文档维护规范](../AGENTS.md#文档维护与命名规范) |
 
@@ -48,6 +50,7 @@ docs/
 | DES-003 | [技术选型与容量评估](02-design/DES-003-2026-10-25-technology-capacity-evaluation.md) |
 | DES-004 | [流程插件与GitHub采集设计](02-design/DES-004-2026-10-25-plugin-workflows.md) |
 | DES-005 | [P2实施接口契约](02-design/DES-005-2026-10-25-p2-implementation-contract.md) |
+| DES-006 | [P3每日调度与稳定执行](02-design/DES-006-2026-10-29-p3-daily-scheduling.md) |
 
 ### 03 计划
 
@@ -65,6 +68,7 @@ docs/
 | RUN-003 | [P1本地预览](04-delivery/RUN-003-2026-10-25-p1-local-preview.md) |
 | RUN-004 | [部署目录持久化与迁移](04-delivery/RUN-004-2026-10-25-deployment-storage-migration.md) |
 | RUN-005 | [P2使用与开发预览](04-delivery/RUN-005-2026-10-25-p2-usage.md) |
+| RUN-006 | [P3每日计划使用说明](04-delivery/RUN-006-2026-10-29-p3-daily-scheduling-usage.md) |
 
 ### 05 验证
 
@@ -73,6 +77,7 @@ docs/
 | VER-001 | [P1开发验证记录](05-verification/VER-001-2026-10-25-p1-development-verification.md) | 原阶段实测与限制 |
 | VER-002 | [P2开发验证记录](05-verification/VER-002-2026-10-25-p2-development-verification.md) | 完整链路实测与限制 |
 | VER-003 | [跨阶段验收场景矩阵](05-verification/VER-003-2026-10-29-cross-phase-acceptance-matrix.md) | 包含未来场景，不代表全部通过 |
+| VER-004 | [P3调度验证记录](05-verification/VER-004-2026-10-29-p3-scheduling-verification.md) | 本轮计划与真实scheduled run开发实测 |
 
 ### 06 评审
 
@@ -83,6 +88,7 @@ docs/
 | REV-003 | [P1开发评审](06-reviews/REV-003-2026-10-25-p1-development-review.md) |
 | REV-004 | [P2插件流程评审](06-reviews/REV-004-2026-10-25-p2-plugin-workflow-review.md) |
 | REV-005 | [P2完整链路评审](06-reviews/REV-005-2026-10-25-p2-integration-review.md) |
+| REV-006 | [P3每日调度评审](06-reviews/REV-006-2026-10-29-p3-scheduling-review.md) |
 
 ### 07 图形
 

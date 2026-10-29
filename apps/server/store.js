@@ -5,8 +5,9 @@ import { dirname } from 'node:path';
 import { hash } from '../../packages/plugin-sdk/index.js';
 import { configFor, plugins, validateSubmission } from './registry.js';
 import { check, key, object } from './errors.js';
+import { DEFAULT_SCHEDULE, DAY, scheduleInput, nextSlot, latestSlot } from './schedule.js';
 
-const terminal = new Set(['SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED']);
+const terminal = new Set(['SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED', 'SKIPPED']);
 const encode = JSON.stringify;
 const decode = row => row ? JSON.parse(row.doc) : null;
 const safeCode = value => typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,79}$/.test(value);
@@ -36,48 +37,146 @@ export class Store {
         const run = decode(row);
         if (run.status === 'RUNNING') { run.status = 'RECOVERING'; run.error = { code: 'SERVER_RESTARTED' }; this.saveRun(run); }
       }
-      if (seed && !this.db.prepare('SELECT id FROM tasks LIMIT 1').get()) this.createTask({ name: 'GitHub 每日榜 README', pluginId: plugins[0].id, pluginVersion: plugins[0].version, profileId: 'main', config: {}, enabled: true });
     });
     this.migrateBodyStorage();
     this.migrateEntityMetadata();
+    this.migrateSchedules();
+    if (seed && !this.db.prepare('SELECT id FROM tasks LIMIT 1').get()) this.createTask({ name: 'GitHub 每日榜 README', pluginId: plugins[0].id, pluginVersion: plugins[0].version, profileId: 'main', config: {}, enabled: true });
+  }
+  migrateSchedules() {
+    this.tx(() => {
+      if (!this.db.prepare('PRAGMA table_info(runs)').all().some(c => c.name === 'scheduled_for')) this.db.exec('ALTER TABLE runs ADD COLUMN scheduled_for TEXT');
+      this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS runs_slot ON runs(task_id,scheduled_for) WHERE scheduled_for IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS schedules(task_id TEXT PRIMARY KEY REFERENCES tasks(id), config TEXT NOT NULL CHECK(json_valid(config)), revision INTEGER NOT NULL, next_utc TEXT, next_date TEXT, last_for TEXT, summary TEXT NOT NULL CHECK(json_valid(summary)));
+        CREATE INDEX IF NOT EXISTS schedules_due ON schedules(next_utc) WHERE next_utc IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS runs_status ON runs(json_extract(doc,'$.status'));
+        CREATE INDEX IF NOT EXISTS runs_scheduled_queue ON runs(task_id) WHERE json_extract(doc,'$.trigger')='scheduled' AND json_extract(doc,'$.status')='QUEUED';`);
+      // 无计划记录的旧任务一律迁移关闭，不碰P2收据、锁或历史run。
+      for (const row of this.db.prepare('SELECT t.id FROM tasks t LEFT JOIN schedules s ON s.task_id=t.id WHERE s.task_id IS NULL').all()) {
+        this.db.prepare('INSERT INTO schedules VALUES(?,?,1,NULL,NULL,NULL,?)').run(row.id, encode(DEFAULT_SCHEDULE), encode({ created: 0, skipped: 0, lastReason: null }));
+      }
+      this.db.exec('PRAGMA user_version=3');
+    });
+  }
+  taskView(task) {
+    const p = this.db.prepare('SELECT * FROM schedules WHERE task_id=?').get(task.id);
+    const summary = JSON.parse(p.summary);
+    return { ...task, schedule: JSON.parse(p.config), scheduleRevision: p.revision, nextScheduledAt: p.next_utc, lastScheduledFor: p.last_for,
+      scheduleStatus: { state: !task.enabled || !JSON.parse(p.config).enabled ? 'DISABLED' : 'SCHEDULED', ...summary } };
+  }
+  writeSchedule(task, revision) {
+    const p = this.db.prepare('SELECT * FROM schedules WHERE task_id=?').get(task.id);
+    const next = task.enabled && task.schedule.enabled ? nextSlot(task.schedule, this.now()) : null;
+    this.db.prepare(`INSERT INTO schedules VALUES(?,?,?,?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET config=excluded.config,revision=excluded.revision,next_utc=excluded.next_utc,next_date=excluded.next_date`).run(
+      task.id, encode(task.schedule), (revision ?? 0) + 1, next ? new Date(next.ms).toISOString() : null, next?.date ?? null, p?.last_for ?? null, p?.summary ?? encode({ created: 0, skipped: 0, lastReason: null }));
+    for (const row of this.db.prepare("SELECT doc FROM runs WHERE task_id=? AND json_extract(doc,'$.trigger')='scheduled' AND json_extract(doc,'$.status')='QUEUED'").all(task.id)) this.skipRun(decode(row), 'SCHEDULE_CHANGED');
+  }
+  skipRun(run, reason) {
+    run.status = 'SKIPPED'; run.error = { code: reason }; run.finishedAt = this.iso(); this.saveRun(run);
+    const p = this.db.prepare('SELECT summary FROM schedules WHERE task_id=?').get(run.taskId);
+    const summary = JSON.parse(p.summary); summary.skipped++; summary.lastReason = reason;
+    this.db.prepare('UPDATE schedules SET summary=? WHERE task_id=?').run(encode(summary), run.taskId);
+  }
+  scheduledRunReason(run, now = this.now()) {
+    if (run.trigger !== 'scheduled') return null;
+    const task = this.getTask(run.taskId);
+    return !task.enabled || !task.schedule.enabled ? 'SCHEDULE_DISABLED' : run.scheduleRevision !== task.scheduleRevision ? 'SCHEDULE_CHANGED' : now - Date.parse(run.scheduledFor) > DAY ? 'SCHEDULE_EXPIRED' : null;
+  }
+  recheckScheduledQueue(now = this.now()) {
+    let skipped = 0;
+    for (const row of this.db.prepare("SELECT doc FROM runs WHERE json_extract(doc,'$.trigger')='scheduled' AND json_extract(doc,'$.status')='QUEUED'").all()) {
+      const run = decode(row); const reason = this.scheduledRunReason(run, now);
+      if (reason) { this.skipRun(run, reason); skipped++; }
+    }
+    return skipped;
+  }
+  nextScheduledAt() { return this.db.prepare('SELECT MIN(next_utc) AS next FROM schedules').get().next; }
+  tick(now = this.now()) {
+    check(Number.isFinite(now), 'INVALID_CLOCK', 400);
+    return this.tx(() => {
+      this.expire(now);
+      const stats = { due: 0, created: 0, skipped: this.recheckScheduledQueue(now) };
+      for (const p of this.db.prepare('SELECT * FROM schedules WHERE next_utc<=? ORDER BY next_utc,task_id').all(new Date(now).toISOString())) {
+        stats.due++;
+        const task = this.getTask(p.task_id); const schedule = JSON.parse(p.config);
+        const latest = latestSlot(schedule, now); const next = nextSlot(schedule, now);
+        const scheduledFor = new Date(latest.ms).toISOString();
+        // 日历差一次计算多年前积压；仅最新slot有run，历史只累计摘要。
+        let skipped = Math.max(0, Math.round((Date.parse(latest.date) - Date.parse(p.next_date)) / DAY));
+        let reason = skipped ? 'SCHEDULE_MISSED' : null; let created = 0;
+        const exists = this.db.prepare('SELECT id FROM runs WHERE task_id=? AND scheduled_for=?').get(task.id, scheduledFor);
+        const active = this.db.prepare("SELECT id FROM runs WHERE task_id=? AND json_extract(doc,'$.status') IN ('QUEUED','RUNNING','RECOVERING') LIMIT 1").get(task.id);
+        if (now - latest.ms > DAY) { skipped++; reason = 'SCHEDULE_EXPIRED'; }
+        else if (exists) { skipped++; reason = 'SCHEDULE_DUPLICATE'; }
+        else if (active) { skipped++; reason = 'TASK_ACTIVE'; }
+        else {
+          this.createRunInternal(task.id, `/scheduled/${task.id}/${scheduledFor}`, {}, { for: scheduledFor, date: latest.date, revision: p.revision, now });
+          created++;
+        }
+        const summary = JSON.parse(p.summary);
+        summary.created += created; summary.skipped += skipped; summary.lastReason = reason;
+        this.db.prepare('UPDATE schedules SET next_utc=?,next_date=?,last_for=?,summary=? WHERE task_id=?').run(new Date(next.ms).toISOString(), next.date, scheduledFor, encode(summary), task.id);
+        stats.created += created; stats.skipped += skipped;
+      }
+      return stats;
+    });
   }
   close() { this.db.close(); }
   tx(fn) { this.db.exec('BEGIN IMMEDIATE'); try { const result = fn(); this.db.exec('COMMIT'); return result; } catch (e) { this.db.exec('ROLLBACK'); throw e; } }
   iso() { return new Date(this.now()).toISOString(); }
-  getTask(id) { const task = decode(this.db.prepare('SELECT doc FROM tasks WHERE id=?').get(id)); check(task, 'TASK_NOT_FOUND', 404); return task; }
+  getTask(id) { const task = decode(this.db.prepare('SELECT doc FROM tasks WHERE id=?').get(id)); check(task, 'TASK_NOT_FOUND', 404); return this.taskView(task); }
   createTask(input) {
-    const task = this.taskInput(input);
-    task.id = randomUUID(); task.createdAt = this.iso(); task.updatedAt = task.createdAt;
-    this.db.prepare('INSERT INTO tasks VALUES(?,?)').run(task.id, encode(task)); return task;
+    const result = this.tx(() => {
+      const task = this.taskInput(input);
+      task.id = randomUUID(); task.createdAt = this.iso(); task.updatedAt = task.createdAt;
+      this.db.prepare('INSERT INTO tasks VALUES(?,?)').run(task.id, encode(task));
+      this.writeSchedule(task, null); return this.getTask(task.id);
+    });
+    this.onScheduleChange?.(); return result;
   }
   taskInput(input, previous = {}) {
-    check(object(input) && Object.keys(input).every(k => ['name','pluginId','pluginVersion','profileId','config','enabled'].includes(k)), 'INVALID_TASK', 400);
+    check(object(input) && Object.keys(input).every(k => ['name','pluginId','pluginVersion','profileId','config','enabled','schedule'].includes(k)), 'INVALID_TASK', 400);
     const task = { profileId: 'main', enabled: true, ...previous, ...input };
     check(typeof task.name === 'string' && task.name.trim().length > 0 && task.name.length <= 200 && task.profileId === 'main' && typeof task.enabled === 'boolean', 'INVALID_TASK', 400);
-    task.config = configFor(task.pluginId, task.pluginVersion, task.config ?? {}); return task;
+    task.config = configFor(task.pluginId, task.pluginVersion, task.config ?? {});
+    task.schedule = scheduleInput(task.schedule); return task;
   }
   patchTask(id, input) {
-    return this.tx(() => { const task = this.taskInput(input, this.getTask(id)); task.updatedAt = this.iso(); this.db.prepare('UPDATE tasks SET doc=? WHERE id=?').run(encode(task), id); return task; });
+    const result = this.tx(() => {
+      const previous = this.getTask(id);
+      const raw = decode(this.db.prepare('SELECT doc FROM tasks WHERE id=?').get(id));
+      const task = this.taskInput(input, { ...raw, schedule: previous.schedule }); task.updatedAt = this.iso();
+      this.db.prepare('UPDATE tasks SET doc=? WHERE id=?').run(encode(task), id);
+      if (task.enabled !== previous.enabled || encode(task.schedule) !== encode(previous.schedule)) this.writeSchedule(task, previous.scheduleRevision);
+      return this.getTask(id);
+    });
+    this.onScheduleChange?.(); return result;
   }
   createRun(taskId, requestKey, request = {}) {
     key(requestKey, 'INVALID_IDEMPOTENCY_KEY');
-    return this.tx(() => {
-      const requestHash = hash({ taskId, request });
-      const old = this.db.prepare('SELECT * FROM runs WHERE request_key=?').get(requestKey);
-      if (old) { check(old.request_hash === requestHash, 'IDEMPOTENCY_CONFLICT'); return decode(old); }
-      const task = this.getTask(taskId); check(task.enabled, 'TASK_DISABLED');
-      const createdAt = this.iso();
-      const snapshot = { taskId, name: task.name, pluginId: task.pluginId, pluginVersion: task.pluginVersion, profileId: task.profileId, config: task.config };
-      const run = { id: randomUUID(), ...snapshot, taskSnapshot: snapshot, configSnapshot: task.config, taskSnapshotRef: randomUUID(), trigger: 'manual', status: 'QUEUED', stage: 'COLLECT', phase: 'COLLECT', createdAt, updatedAt: createdAt, attempt: 0, fencingToken: 0, leaseOwner: null, leaseUntil: null, deadline: null, cancelRequested: false, progress: null, error: null, resultSummary: null, outcome: null, uploadOnly: false };
-      this.db.prepare('INSERT INTO runs(id,task_id,request_key,request_hash,doc) VALUES(?,?,?,?,?)').run(run.id, taskId, requestKey, requestHash, encode(run)); return run;
-    });
+    return this.tx(() => this.createRunInternal(taskId, requestKey, request));
+  }
+  // 调用方持有事务；手动HTTP与tick共用创建逻辑但不嵌套BEGIN。
+  createRunInternal(taskId, requestKey, request = {}, scheduled = null) {
+    const requestHash = hash({ taskId, request });
+    const old = this.db.prepare('SELECT * FROM runs WHERE request_key=?').get(requestKey);
+    if (old) { check(old.request_hash === requestHash, 'IDEMPOTENCY_CONFLICT'); return decode(old); }
+    const task = this.getTask(taskId); check(task.enabled, 'TASK_DISABLED');
+    const createdAt = new Date(scheduled?.now ?? this.now()).toISOString();
+    const snapshot = { taskId, name: task.name, pluginId: task.pluginId, pluginVersion: task.pluginVersion, profileId: task.profileId, config: task.config };
+    const run = { id: randomUUID(), ...snapshot, taskSnapshot: snapshot, configSnapshot: task.config, taskSnapshotRef: randomUUID(), trigger: 'manual', status: 'QUEUED', stage: 'COLLECT', phase: 'COLLECT', createdAt, updatedAt: createdAt, attempt: 0, fencingToken: 0, leaseOwner: null, leaseUntil: null, deadline: null, cancelRequested: false, progress: null, error: null, resultSummary: null, outcome: null, uploadOnly: false };
+    if (scheduled) {
+      Object.assign(run, { trigger: 'scheduled', scheduledFor: scheduled.for, scheduledDate: scheduled.date, scheduleRevision: scheduled.revision });
+      run.taskSnapshot = { ...snapshot, schedule: task.schedule, scheduleRevision: scheduled.revision };
+    }
+    this.db.prepare('INSERT INTO runs(id,task_id,request_key,request_hash,doc,scheduled_for) VALUES(?,?,?,?,?,?)').run(run.id, taskId, requestKey, requestHash, encode(run), scheduled?.for ?? null); return run;
   }
   run(id) { const run = decode(this.db.prepare('SELECT doc FROM runs WHERE id=?').get(id)); check(run, 'RUN_NOT_FOUND', 404); return run; }
   saveRun(run) { run.updatedAt = this.iso(); this.db.prepare('UPDATE runs SET doc=? WHERE id=?').run(encode(run), run.id); }
-  expire() {
+  expire(now = this.now()) {
     for (const row of this.db.prepare("SELECT doc FROM runs WHERE json_extract(doc,'$.status')='RUNNING'").all()) {
       const run = decode(row);
-      if (Date.parse(run.leaseUntil) <= this.now()) { run.status = 'RECOVERING'; run.error = { code: 'WORKER_LOST' }; this.saveRun(run); }
+      if (Date.parse(run.leaseUntil) <= now) { run.status = 'RECOVERING'; run.error = { code: 'WORKER_LOST' }; this.saveRun(run); }
     }
   }
   identity(body, run) { check(body?.workerId === this.workerId && (!run || run.leaseOwner === body.workerId), 'WORKER_IDENTITY_MISMATCH', 403); }
@@ -102,9 +201,10 @@ export class Store {
       const previous = this.db.prepare('SELECT * FROM claims WHERE worker_id=? AND request_key=?').get(body.workerId,body.requestKey);
       if (previous) {
         const run = this.run(previous.run_id); const lease = JSON.parse(previous.lease);
-        const executable = run.status === 'RUNNING' && !run.cancelRequested && !run.uploadOnly && !run.finalizationOnly && Date.parse(lease.leaseUntil) > this.now() + 5000 && run.fencingToken === lease.fencingToken && !this.db.prepare('SELECT id FROM collections WHERE run_id=? LIMIT 1').get(run.id);
+        const executable = run.status === 'RUNNING' && !this.scheduledRunReason(run) && !run.cancelRequested && !run.uploadOnly && !run.finalizationOnly && Date.parse(lease.leaseUntil) > this.now() + 5000 && run.fencingToken === lease.fencingToken && !this.db.prepare('SELECT id FROM collections WHERE run_id=? LIMIT 1').get(run.id);
         return { run,lease,action: executable ? 'execute' : 'finalize_only',requestKey:body.requestKey,replayed:true };
       }
+      this.recheckScheduledQueue();
       const worker = decode(this.db.prepare('SELECT doc FROM workers WHERE id=?').get(this.workerId));
       // 公开GitHub无需站点登录；PAUSED不阻止只读领取。poller在本地runExternal锁中claim，busy且无activeRunId为正常领取状态。
       if (worker && (worker.mode.startsWith('MANUAL') || worker.activeRunId || this.now() - Date.parse(worker.lastHeartbeatAt) > 90000)) return null;
@@ -236,7 +336,7 @@ export class Store {
   outcome(runId, body) {
     this.tx(() => {
       const run = this.run(runId); this.identity(body, run);
-      check(terminal.has(body.status), 'INVALID_OUTCOME', 400);
+      check(terminal.has(body.status) && body.status !== 'SKIPPED', 'INVALID_OUTCOME', 400);
       if (body.errorCode != null) check(safeCode(body.errorCode), 'INVALID_ERROR_CODE', 400);
       // summary只接纳数值计数/枚举，拒绝页面正文或路径进入状态信息。
       if (body.summary != null) check(object(body.summary) && Object.entries(body.summary).every(([k,v]) => /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(k) && (typeof v === 'number' && Number.isFinite(v) || typeof v === 'boolean' || typeof v === 'string' && /^[A-Za-z0-9_:-]{1,80}$/.test(v))), 'INVALID_SUMMARY', 400);
@@ -378,7 +478,7 @@ export class Store {
     const params = [after]; let filter = '';
     if (table === 'entities') { filter = ' AND (?=\'\' OR instr(lower(source_key),lower(?))>0) AND (?=\'\' OR entity_type=?)'; params.push(q,q,type,type); }
     const rows = this.db.prepare(`SELECT rowid AS page_seq,doc FROM ${table} WHERE rowid>?${filter} ORDER BY rowid LIMIT ?`).all(...params, limit + 1);
-    const items = rows.slice(0, limit).map(row => table === 'entities' ? this.entityMetadata(decode(row)) : decode(row));
+    const items = rows.slice(0, limit).map(row => table === 'entities' ? this.entityMetadata(decode(row)) : table === 'tasks' ? this.taskView(decode(row)) : decode(row));
     return { items, nextCursor: rows.length > limit ? Buffer.from(encode({ table, seq: rows[limit - 1].page_seq })).toString('base64url') : null };
   }
   getEntity(id, pagination = {}) {

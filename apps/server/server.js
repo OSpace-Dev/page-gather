@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { Auth, configuration } from './auth.js';
 import { Store } from './store.js';
+import { Scheduler } from './scheduler.js';
 import { plugins } from './registry.js';
 import { ApiError, check, object } from './errors.js';
 
@@ -29,16 +30,20 @@ async function body(req, optional = false) {
   check(object(parsed), 'INVALID_JSON',400); return parsed;
 }
 const pagination = url => ({ limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : 50, cursor: url.searchParams.get('cursor'), q: url.searchParams.get('q') ?? '', type: url.searchParams.get('type') ?? '' });
-export function createServer({ store, auth, ...options } = {}) {
+export function createServer({ store, auth, schedulerOptions, ...options } = {}) {
   const ownedStore = !store;
   auth ??= new Auth(options); store ??= new Store(options);
+  const scheduler = new Scheduler(store, schedulerOptions);
   const server = http.createServer(async (req, res) => {
     const requestId = randomUUID();
     const send = (status, value, headers = {}) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-request-id': requestId, ...headers }); res.end(status === 204 ? undefined : JSON.stringify(value)); };
     try {
       const url = new URL(req.url, 'http://internal'); const path = url.pathname; const method = req.method;
       check(path.startsWith('/api/v1/'), 'NOT_FOUND',404);
-      if (path === '/api/v1/health' && method === 'GET') return send(200, { status: 'ok' });
+      if (path === '/api/v1/health' && method === 'GET') {
+        const { enabled, healthy } = scheduler.status();
+        return send(healthy ? 200 : 503, { status: healthy ? 'ok' : 'degraded', scheduler: { enabled, healthy } });
+      }
       if (path.startsWith('/api/v1/worker/')) {
         auth.worker(req); check(method === 'POST', 'METHOD_NOT_ALLOWED',405);
         const input = await body(req);
@@ -56,6 +61,7 @@ export function createServer({ store, auth, ...options } = {}) {
         const cookie = auth.login(req,await body(req)); return send(200, { user: { username: 'admin' } }, { 'set-cookie': cookie });
       }
       auth.session(req);
+      if (path === '/api/v1/scheduler' && method === 'GET') return send(200, scheduler.status());
       if (path === '/api/v1/auth/me' && method === 'GET') return send(200,{ user: { username: 'admin' } });
       if (path === '/api/v1/auth/logout' && method === 'POST') return send(200,{ ok:true }, { 'set-cookie':auth.logout(req) });
       if (path === '/api/v1/plugins' && method === 'GET') return send(200,{ items: plugins, nextCursor:null });
@@ -89,8 +95,11 @@ export function createServer({ store, auth, ...options } = {}) {
     }
   });
   server.requestTimeout = 30000; server.headersTimeout = 10000; server.keepAliveTimeout = 5000; server.maxHeadersCount = 100;
-  const interval = setInterval(() => { try { store.tx(() => store.expire()); } catch { /* 不记录运行数据；后续请求仍会重新检查租约。 */ } },15000); interval.unref();
-  server.on('close', () => { clearInterval(interval); if (ownedStore) store.close(); });
+  server.scheduler = scheduler;
+  const close = server.close.bind(server);
+  server.close = (...args) => { scheduler.stop(); return close(...args); };
+  server.on('close', () => { scheduler.stop(); if (ownedStore) store.close(); });
+  scheduler.start();
   return server;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

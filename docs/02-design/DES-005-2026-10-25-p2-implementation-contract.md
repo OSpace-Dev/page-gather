@@ -5,6 +5,10 @@
 
 本文件是当前P2各模块协作的实施契约，最终已实现内容与验收另记。默认单管理员、单worker、单浏览器档案，GitHub插件可信部署安装；Vue3/Naive UI静态页面由NGINX提供，同源代理API到server容器。中心用Node24原生HTTP与node:sqlite最小实现（Fastify为原选型建议，本阶段不额外增加运行依赖），SQLite绑定部署data/database。
 
+## P3兼容扩展
+
+P3新增中心独占终态SKIPPED：已QUEUED的自动run过期或日程变化时跳过，不访问页面；未创建的slot跳过只写调度摘要。worker outcome不接受SKIPPED，手动取消仍CANCELLED。计划配置、唯一slot及领取重查见 [DES-006](DES-006-2026-10-29-p3-daily-scheduling.md#4-漏跑积压与人工模式)，P2本身未提供这些能力。
+
 ## 用户接口
 
 所有接口前缀 `/api/v1`。管理员用户名admin，密码从 `PAGE_GATHER_ADMIN_PASSWORD_FILE` 读取，部署者自行保密；worker凭据从 `PAGE_GATHER_WORKER_TOKEN_FILE` 读取。文件内容不进Git、不打印普通日志。会话Cookie HttpOnly/SameSite=Strict，生产外部HTTPS时Secure；不盲信代理头，写接口验证配置的 `PAGE_GATHER_PUBLIC_ORIGIN`，loopback开发origin显式配置。登录有速率限制。除health和login外用户接口需会话认证，worker接口需Bearer凭据，二者不可互换。
