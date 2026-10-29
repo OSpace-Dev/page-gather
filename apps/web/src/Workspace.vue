@@ -5,13 +5,16 @@ import { NAlert, NButton, NCard, NDataTable, NDrawer, NDrawerContent, NEmpty, NF
 import type { DataTableColumns } from 'naive-ui'
 import { active, api, date, identified, label, page, record, row, run, safeUrl, task, text } from './api'
 import RunSnapshotDrawer from './RunSnapshotDrawer.vue'
+import AppNavigation from './AppNavigation.vue'
+import PwaPanel from './PwaPanel.vue'
+import { logoutCurrentDevice } from './push'
+import { fixedVersion, validId } from './notifications'
 import { defaultSchedule, parseScheduler, runScheduleText, scheduleDate, scheduleError, scheduleReason, scheduleStatusText, timezoneOptions } from './schedule'
 import type { SchedulerState } from './schedule'
 import type { Entity, Entry, Row, Run, Task } from './api'
 const route = useRoute(), router = useRouter(), message = useMessage(), dialog = useDialog()
 const section = computed(() => String(route.meta.section ?? 'overview'))
 const titles: Record<string,string> = { overview:'工作台概览', tasks:'任务与手动采集', runs:'运行记录', entities:'项目资料库' }
-const nav = [{ key:'overview', title:'概览' }, { key:'tasks', title:'任务 / 手动采集' }, { key:'runs', title:'运行记录' }, { key:'entities', title:'项目资料库' }]
 const collapsed = ref(false), loading = ref(false), error = ref(''), pollError = ref(''), detailError = ref('')
 const tasks = ref<Task[]>([]), runs = ref<Run[]>([]), entities = ref<Entity[]>([]), workers = ref<Row[]>([]), healthy = ref(false)
 const taskCursor = ref<string|null>(null), runCursor = ref<string|null>(null), entityCursor = ref<string|null>(null)
@@ -28,6 +31,7 @@ let generation = 0, detailGeneration = 0, disposed = false
 const latestCompleted = computed(() => [...runs.value].filter(r => ['SUCCEEDED','PARTIAL'].includes(r.status)).sort((a,b) => text(b.finishedAt ?? b.createdAt).localeCompare(text(a.finishedAt ?? a.createdAt)))[0])
 const currentRunId = computed(() => typeof route.query.runId === 'string' ? route.query.runId : '')
 const currentEntityId = computed(() => typeof route.query.entityId === 'string' ? route.query.entityId : '')
+const currentVersionId = computed(() => typeof route.query.versionId === 'string' ? route.query.versionId : '')
 const previewUrl = computed(() => {
   const configured = safeUrl(import.meta.env.VITE_BROWSER_PREVIEW_URL)
   if (configured) return configured
@@ -43,6 +47,7 @@ function report(e: unknown) { return e instanceof Error ? e.message : '操作失
 function stopPoll() { if (timer) clearTimeout(timer); timer = undefined }
 async function fetchRun(id: string, requestGeneration = detailGeneration) {
   const result = run(row(await api(`/runs/${encodeURIComponent(id)}`)).run)
+  if (result.id !== id) throw new Error('运行详情标识与原通知目标不匹配。')
   if (!disposed && requestGeneration === detailGeneration && currentRunId.value === id) selectedRun.value = result
 }
 function schedulePoll() {
@@ -64,6 +69,7 @@ async function loadDetails() {
   const requestGeneration = ++detailGeneration
   stopPoll(); pollError.value = ''; detailError.value = ''; selectedRun.value = null; entity.value = null; versions.value = []; selectedVersion.value = null
   try {
+    if (route.query.versionId !== undefined && (!validId(route.query.versionId) || !validId(route.query.entityId))) throw new Error('历史版本目标参数不完整或无效，未显示当前版本替代。')
     if (currentRunId.value) await fetchRun(currentRunId.value, requestGeneration)
     if (currentEntityId.value) {
       const result = row(await api(`/entities/${encodeURIComponent(currentEntityId.value)}?limit=200`))
@@ -79,13 +85,15 @@ async function loadDetails() {
         history.push(...p.items); cursor = p.nextCursor
       }
       if (requestGeneration === detailGeneration && !disposed) {
-        entity.value = item
+        if (item.id !== currentEntityId.value) throw new Error('项目标识与原通知目标不匹配，未展示其他项目。')
+        const original = currentVersionId.value ? fixedVersion(history,currentVersionId.value,currentEntityId.value,currentRunId.value) : null
         history.reverse()
         versions.value = history
-        selectedVersion.value = history.find(v => v.id === item.currentVersionId) ?? history[0] ?? null
+        selectedVersion.value = original ?? history.find(v => v.id === item.currentVersionId) ?? history[0] ?? null
+        entity.value = item
       }
     }
-  } catch(e) { if (requestGeneration === detailGeneration && !disposed) detailError.value = report(e) }
+  } catch(e) { if (requestGeneration === detailGeneration && !disposed) { detailError.value = report(e); if (currentVersionId.value) { entity.value = null; selectedVersion.value = null } } }
   if (requestGeneration === detailGeneration) schedulePoll()
 }
 async function retryPoll() {
@@ -162,7 +170,7 @@ async function more(kind: 'tasks'|'runs') {
 }
 function openRun(id: string) { void router.push({ path:'/runs', query:{runId:id} }) }
 function openEntity(id: string) { void router.push({ path: route.path, query:{ ...route.query, entityId:id } }) }
-function closeEntity() { const q = {...route.query}; delete q.entityId; void router.replace({query:q}) }
+function closeEntity() { const q = {...route.query}; delete q.entityId; delete q.versionId; void router.replace({query:q}) }
 function edit(t: Task) {
   editTask.value = t
   form.value = { name:t.name, enabled:t.enabled, maxRepos: typeof t.config.maxRepos === 'number' ? t.config.maxRepos : 25, itemDelayMs: typeof t.config.itemDelayMs === 'number' ? t.config.itemDelayMs : 5000, language:text(t.config.language,''), spokenLanguage:text(t.config.spokenLanguage,''), schedule:{ ...t.schedule } }
@@ -197,7 +205,12 @@ function cancelRun() {
     try { await api(`/runs/${encodeURIComponent(r.id)}/cancel`, 'POST', {}); message.success('已提交取消请求'); await retryPoll() } catch(e) { message.error(report(e)) } finally { cancelling.value = false }
   } })
 }
-async function logout() { try { await api('/auth/logout','POST',{}); await router.replace('/login') } catch(e) { message.error(report(e)) } }
+const loggingOut = ref(false)
+async function logout() {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  try { const warnings = await logoutCurrentDevice(); await router.replace({ path:'/login', query:warnings.length ? {logoutWarning:'1'} : {} }) } catch(e) { message.error(report(e)) } finally { loggingOut.value = false }
+}
 function viewEntry(e: Entry) { selectedSnapshotEntry.value = e }
 function viewSnapshotEntity(id: string) {
   selectedSnapshotEntry.value = null
@@ -215,14 +228,14 @@ const summary = computed(() => {
   return Object.entries(names).filter(([k])=>s[k] != null).map(([k,name])=>({ name, value:values[text(s[k])] ?? text(s[k]) }))
 })
 const readme = computed(() => {
-  const r = selectedVersion.value?.readme ?? entity.value?.readme
+  const r = selectedVersion.value ? selectedVersion.value.readme : entity.value?.readme
   return record(r) ? r : null
 })
 const versionOptions = computed(() => versions.value.map((v,i)=>({label:`历史版本 ${text(v.version ?? v.versionNumber, String(versions.value.length-i))} · ${date(v.observedAt ?? v.createdAt)}`,value:i})))
 const versionIndex = computed({ get:()=>Math.max(0,versions.value.indexOf(selectedVersion.value ?? {})), set:(i:number)=>{ selectedVersion.value = versions.value[i] ?? null } })
 watch(currentRunId, () => { selectedSnapshotEntry.value = null })
 watch(section, () => { collapsed.value = false; void load() }, { immediate:true })
-watch([currentRunId,currentEntityId], () => void loadDetails(), {immediate:true})
+watch([currentRunId,currentEntityId,currentVersionId], () => void loadDetails(), {immediate:true})
 onBeforeUnmount(()=>{ disposed=true; generation++; detailGeneration++; stopPoll(); document.removeEventListener('visibilitychange',visibility) })
 </script>
 
@@ -230,12 +243,14 @@ onBeforeUnmount(()=>{ disposed=true; generation++; detailGeneration++; stopPoll(
 <div class="shell">
   <aside :class="['sidebar', {expanded:collapsed}]">
     <div class="brand">PAGE GATHER<span>采集工作台</span></div>
-    <nav aria-label="主导航"><router-link v-for="item in nav" :key="item.key" :to="`/${item.key}`" :class="{selected:section===item.key}">{{ item.title }}</router-link></nav>
+    <app-navigation />
     <div class="sidebar-foot">GitHub Trending<br><span>手动 / 每日计划 · 结果留存</span></div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><n-button class="menu-toggle" @click="collapsed=!collapsed" :aria-expanded="collapsed" aria-label="展开或收起导航">☰</n-button><span>数据采集 / {{ titles[section] }}</span><n-button quaternary @click="logout">退出登录</n-button></header>
+    <header class="topbar"><n-button class="menu-toggle" @click="collapsed=!collapsed" :aria-expanded="collapsed" aria-label="展开或收起导航">☰</n-button><span>数据采集 / {{ titles[section] }}</span><n-button quaternary :loading="loggingOut" @click="logout">退出登录</n-button></header>
     <main class="content">
+      <pwa-panel />
+      <n-alert v-if="detailError && !currentRunId && !currentEntityId" type="error" role="alert" class="gap">{{ detailError }}</n-alert>
       <div class="page-heading"><div><h1>{{ titles[section] }}</h1><p class="muted">采集 GitHub 每日趋势，自选手动执行或每日计划。</p></div><n-button :loading="loading" @click="refresh">刷新</n-button></div>
       <n-alert v-if="error" type="error" class="gap" role="alert">{{ error }}<div><n-button @click="load">重试</n-button></div></n-alert>
       <n-alert v-if="manual" type="warning" class="gap" title="浏览器处于人工模式">任务会等待人工操作结束后开始采集。<a v-if="previewUrl" :href="previewUrl" target="_blank" rel="noopener noreferrer">打开浏览器预览 ↗</a></n-alert>

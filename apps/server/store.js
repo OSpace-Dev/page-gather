@@ -6,13 +6,14 @@ import { hash } from '../../packages/plugin-sdk/index.js';
 import { configFor, plugins, validateSubmission } from './registry.js';
 import { check, key, object } from './errors.js';
 import { DEFAULT_SCHEDULE, DAY, scheduleInput, nextSlot, latestSlot } from './schedule.js';
+import { NotifyStore } from './notify-store.js';
 
 const terminal = new Set(['SUCCEEDED', 'PARTIAL', 'FAILED', 'CANCELLED', 'SKIPPED']);
 const encode = JSON.stringify;
 const decode = row => row ? JSON.parse(row.doc) : null;
 const safeCode = value => typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,79}$/.test(value);
 export class Store {
-  constructor({ filename = '/data/database/page-gather.sqlite', workerId = 'worker-main', seed = true, now = Date.now } = {}) {
+  constructor({ filename = '/data/database/page-gather.sqlite', workerId = 'worker-main', seed = true, now = Date.now, pushConfig } = {}) {
     this.workerId = key(workerId); this.now = now;
     if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(filename);
@@ -41,6 +42,7 @@ export class Store {
     this.migrateBodyStorage();
     this.migrateEntityMetadata();
     this.migrateSchedules();
+    this.notifications = new NotifyStore(this, pushConfig);
     if (seed && !this.db.prepare('SELECT id FROM tasks LIMIT 1').get()) this.createTask({ name: 'GitHub 每日榜 README', pluginId: plugins[0].id, pluginVersion: plugins[0].version, profileId: 'main', config: {}, enabled: true });
   }
   migrateSchedules() {
@@ -288,7 +290,7 @@ export class Store {
     const run = this.run(runId); this.identity(body, run);
     const c = this.collection(body.submission?.collectionId, runId); const s = body.submission;
     const payload = validateSubmission(s, c, run);
-    return this.tx(() => {
+    const result = this.tx(() => {
       const current = this.run(runId); this.identity(body, current);
       const currentCollection = this.collection(c.id, runId);
       const old = this.submissionIdentity(current, currentCollection, s); if (old) return { receipt: old };
@@ -298,9 +300,11 @@ export class Store {
       check(c.seq !== committed, 'WATERMARK_CONFLICT');
       const stale = c.seq < committed;
       const counts = { items: payload.items.length, created: 0, changed: 0, unchanged: 0 };
-      const itemLinks = [];
+      const itemLinks = []; const newEvents = [];
       if (!stale) {
-        for (const item of payload.items) itemLinks.push({ versionId: this.applyItem(run, item, counts), metadata: this.itemMetadata(item) });
+        const hadBaseline = !!this.db.prepare('SELECT run_id FROM baselines WHERE task_id=? AND scope_key=?').get(run.taskId, payload.scopeKey);
+        for (const item of payload.items) itemLinks.push({ versionId: this.applyItem(run, item, counts, newEvents), metadata: this.itemMetadata(item) });
+        this.notifications.recordSubmission(run, payload, newEvents, hadBaseline);
         this.db.prepare('UPDATE profiles SET committed_seq=? WHERE id=?').run(c.seq, run.profileId);
         if (payload.completeness === 'complete') this.db.prepare('INSERT INTO baselines VALUES(?,?,?) ON CONFLICT(task_id,scope_key) DO UPDATE SET run_id=excluded.run_id').run(run.taskId, payload.scopeKey, run.id);
       }
@@ -312,8 +316,9 @@ export class Store {
       current.stage = 'UPLOAD'; current.phase = 'UPLOAD'; current.resultSummary = { completeness: payload.completeness, ...counts, disposition: receipt.disposition, collectionSeq: c.seq }; this.saveRun(current);
       return { receipt };
     });
+    this.notifications.wake(); return result;
   }
-  applyItem(run, item, counts) {
+  applyItem(run, item, counts, newEvents = []) {
     let entity = decode(this.db.prepare('SELECT doc FROM entities WHERE source=? AND profile_id=? AND entity_type=? AND source_key=?').get(run.pluginId, run.profileId, 'repository_readme', item.sourceKey));
     const fingerprint = item.contentHash;
     const existing = !!entity;
@@ -326,6 +331,7 @@ export class Store {
       this.db.prepare('INSERT INTO versions(id,entity_id,run_id,fingerprint,doc) VALUES(?,?,?,?,?)').run(version.id, entity.id, run.id, fingerprint, encode(version));
       const event = { id: randomUUID(), versionId: version.id, kind: existing ? 'changed' : 'created' };
       this.db.prepare('INSERT INTO events VALUES(?,?,?)').run(event.id, version.id, encode(event));
+      newEvents.push({ event, version, item });
       entity.currentVersionId = version.id; entity.fingerprint = fingerprint;
       counts[existing ? 'changed' : 'created']++;
     } else counts.unchanged++;

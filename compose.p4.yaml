@@ -1,0 +1,15 @@
+# 与compose.p2.yaml共同使用。所有data路径相对同一部署目录，不创建命名卷。
+services:
+  server:
+    environment:
+      PAGE_GATHER_PUSH_ENABLED: ${PAGE_GATHER_PUSH_ENABLED:-false}
+      PAGE_GATHER_VAPID_FILE: /run/secrets/vapid.json
+      PAGE_GATHER_VAPID_SUBJECT: ${PAGE_GATHER_VAPID_SUBJECT:-}
+    volumes:
+      - type: bind
+        source: ./data/config/vapid.json
+        target: /run/secrets/vapid.json
+        read_only: true
+        bind:
+          create_host_path: false
+# 默认push禁用，站内通知独立工作；真实联系方式在部署.env配置，不写入仓库。

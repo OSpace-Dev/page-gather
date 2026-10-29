@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { randomBytes, scryptSync, timingSafeEqual, createHmac } from 'node:crypto';
 import { ApiError, check } from './errors.js';
+import { loadPushConfiguration } from './push-transport.js';
 
 const equal = (a, b) => { const x = Buffer.from(a); const y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x,y); };
 function secretFile(filename) {
@@ -19,7 +20,7 @@ export function configuration(env = process.env) {
   check(origin.protocol !== 'http:' || ['localhost','127.0.0.1','[::1]'].includes(origin.hostname) && env.NODE_ENV !== 'production', 'DEVELOPMENT_LOOPBACK_REQUIRED', 500);
   const adminValue = secretFile(env.PAGE_GATHER_ADMIN_PASSWORD_FILE);
   const workerValue = secretFile(env.PAGE_GATHER_WORKER_TOKEN_FILE);
-  return { publicOrigin: origin.origin, secureCookie: secure,
+  return { publicOrigin: origin.origin, secureCookie: secure, pushConfig: loadPushConfiguration(env),
     password: adminValue, workerToken: workerValue,
     workerId: env.PAGE_GATHER_WORKER_ID ?? 'worker-main', filename: env.PAGE_GATHER_DATABASE_FILE ?? '/data/database/page-gather.sqlite',
     host: env.PAGE_GATHER_HOST ?? '0.0.0.0', port: Number(env.PAGE_GATHER_PORT ?? 3000) };

@@ -30,16 +30,24 @@ export function assertNoBrowserFrameworks(pkg, lock) {
 }
 export function checkRepository() {
   const manifests = walk('.').filter(path => path.endsWith('/package.json')).sort();
-  const allowedManifests = ['./apps/web/package.json', './package.json'];
+  const allowedManifests = ['./apps/web/package.json', './apps/server/package.json', './package.json'];
   if (manifests.some(path => !allowedManifests.includes(path))) throw new Error('UNREVIEWED_PACKAGE_MANIFEST');
   const pkg = JSON.parse(readFileSync('package.json'));
   const lock = JSON.parse(readFileSync('package-lock.json'));
   if (lock.lockfileVersion !== 3) throw new Error('LOCK_VERSION_REQUIRED');
   assertNoBrowserFrameworks(pkg, lock);
   for (const path of manifests) assertNoBrowserFrameworks(JSON.parse(readFileSync(path)), lock);
-  // P2仅允许已审阅的Vue静态前端直接依赖；server/worker仍为Node原生实现。
+  // P4仅允许明确审阅的Web Push服务端库；worker仍使用Node原生能力，前端保持既有依赖。
   for (const key of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
     if (Object.keys(pkg[key] || {}).length) throw new Error('ROOT_DEPENDENCIES_NOT_ALLOWED');
+  }
+  if (manifests.includes('./apps/server/package.json')) {
+    const server = JSON.parse(readFileSync('apps/server/package.json'));
+    for (const key of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
+      for (const [name, version] of Object.entries(server[key] || {})) {
+        if (key !== 'dependencies' || name !== 'web-push' || version !== '3.6.7') throw new Error('UNREVIEWED_SERVER_DEPENDENCY');
+      }
+    }
   }
   if (manifests.includes('./apps/web/package.json')) {
     const web = JSON.parse(readFileSync('apps/web/package.json'));
@@ -50,5 +58,5 @@ export function checkRepository() {
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === resolve('scripts/check-dependencies.js')) {
-  checkRepository(); console.log('依赖检查通过：server/worker使用Node原生能力，前端仅允许已审阅依赖，无禁止浏览器框架。');
+  checkRepository(); console.log('依赖检查通过：worker无运行依赖，server仅审阅的Web Push库，前端仅允许审阅依赖，无禁止浏览器框架。');
 }

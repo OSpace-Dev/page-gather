@@ -1,6 +1,6 @@
-# P2/P3 中心服务
+# P2/P3/P4 中心服务
 
-仅 Node 24 内置 HTTP、SQLite、crypto，无 npm 运行依赖。仓库根运行 `node apps/server/server.js`；测试 `node --test apps/server/test/*.test.js`。Docker 使用仓库根上下文和 `apps/server/Dockerfile`，以 node 用户运行；数据库挂载目录需要对容器 UID 1000 可写。凭据文件由部署者生成并赋予最小读取权限，中心不会自动生成或打印密码。
+主体使用 Node 24 内置 HTTP、SQLite、crypto；标准 Web Push 仅由独立 `push-transport.js` 使用锁定的 `web-push` 运行依赖。仓库根运行 `node apps/server/server.js`；测试 `node --test apps/server/test/*.test.js`。Docker 使用仓库根上下文和 `apps/server/Dockerfile`，以 node 用户运行；数据库挂载目录需要对容器 UID 1000 可写。凭据文件由部署者生成并赋予最小读取权限，中心不会自动生成或打印密码。
 
 ## 配置
 
@@ -14,6 +14,9 @@
 | PAGE_GATHER_DATABASE_FILE | 默认容器约定路径 /data/database/page-gather.sqlite |
 | PAGE_GATHER_HOST / PAGE_GATHER_PORT | 默认 0.0.0.0 / 3000 |
 | NODE_ENV | 镜像默认 production，强制 HTTPS；loopback HTTP 开发需显式 development |
+| PAGE_GATHER_PUSH_ENABLED | 默认 false；仅 true 时允许外部推送，站内通知不依赖它 |
+| PAGE_GATHER_VAPID_FILE | 默认容器约定路径 /data/config/vapid.json，配对的 publicKey/privateKey，0600 |
+| PAGE_GATHER_VAPID_SUBJECT | 启用推送时明确配置有效 mailto 或 HTTPS 联系方式 |
 
 部署 `/run/secrets/admin-password` 和 `/run/secrets/worker-token` 是可选容器内约定路径，分别通过两个 FILE 环境变量指定。数据库只挂中心，不挂 worker。文件缺失、空值或生产安全配置不满足时启动失败，日志仅输出固定错误码。会话保存在内存，服务重启后重新登录，机器凭据读取一次。登录每个直接连接 IP 每分钟最多五次失败尝试，不信任代理头；代理部署共享该 IP 限制。
 
@@ -41,7 +44,7 @@ SQLite WAL/FULL/FK/busy_timeout=5000。短事务包含档案锁、幂等判定�
 
 启动将活动 RUNNING 置为 RECOVERING，租约失效同样保留档案锁。取消是请求停止，只有 worker outcome 确认后才释放活动锁。OPEN 不自动续采，失败不会自动创建新 run。无 sealed 包且失联的 run 保持 RECOVERING，直到原 worker 在 controller 锁下确认旧页面停止并取得仅终结授权；不根据租约到期猜测浏览器已停止，不提供匿名解锁接口。
 
-附件未接，认证后的 artifacts 接口返回 501 `ARTIFACT_UPLOAD_NOT_IMPLEMENTED`，不会生成截图。不实现推送、签到或新站点。这里的 HTTP/SQLite/SDK 测试不代表实际 GitHub 浏览器采集或服务器部署验收，页面和 worker 的真实闭环由主 agent 集成验证。
+附件未接，认证后的 artifacts 接口返回 501 `ARTIFACT_UPLOAD_NOT_IMPLEMENTED`，不会生成截图。P4 通知和推送接口见下文；不实现 P5 签到或新站点。这里的 HTTP/SQLite/SDK 测试不代表实际 GitHub 浏览器采集或服务器部署验收，页面和 worker 的真实闭环由主 agent 集成验证。
 
 ## P3 每日调度接口与生命周期
 
@@ -74,6 +77,46 @@ MANUAL、档案锁或离线阻止实际领取，不阻止排队一个自动 run�
 
 enabled 表示服务开启调度循环，不表示所有任务启用。lastTickAt 是最近成功 tick；stats 是本进程启动以来成功 tick 的累计值，任务 scheduleStatus 的计数则跨重启持久化。失败后 healthy=false / lastErrorCode=`SCHEDULER_TICK_FAILED`，不返回 SQL、路径或异常原文；下一次成功恢复健康。公开 `/health` 仅增加 `scheduler:{enabled,healthy}`，健康为 200/status=ok，调度失败为 503/status=degraded，不暴露计划/任务/计数。
 
-`Scheduler` 使用最近到期唤醒及最多 60 秒兜底，配置写入后立即重新计算；失败采用 1 秒起、最长 60 秒的指数退避，写配置不绕过退避。原 15 秒 expire 定时器合并到 tick，claim/recover 的即时过期检查保留。`server.close()` 调用即停止 timer，close 事件才关闭自有数据库；外部注入的 Store 仍由调用者在 server 关闭后关闭。可注入 `Store.now`、`Store.tick(now)` 和 `schedulerOptions` 时钟/timer 进行隔离测试，无改时/debug HTTP 端点。
+`Scheduler` 使用最近到期唤醒及最多 60 秒兜底，配置写入后立即重新计算；失败采用 1 秒起、最长 60 秒的指数退避，写配置不绕过退避。原 15 秒 expire 定时器合并到 tick，claim/recover 的即时过期检查保留。`server.close()` 调用即停止调度与推送 timer，并 abort sender；等待 HTTP 关闭及有界 sender 结束后才关闭自有数据库并调用 close callback。外部注入的 Store 仍由调用者在 close callback 之后关闭。可注入 `Store.now`、`Store.tick(now)` 和 `schedulerOptions` 时钟/timer 进行隔离测试，无改时/debug HTTP 端点。
 
 时区计算使用有界 offset 采样、跃迁二分及有界缓存，不逐分钟常驻扫描；DST 重复选早一次，缺失分钟顺延到当天首个有效分钟（纽约 02:30→03:00，Lord Howe 02:15→02:30）。完整缺失的当地日期不生成 slot。
+
+## P4 通知 API 与 DTO（frontend/main 接线）
+
+遵循 [DES-007](../../docs/02-design/DES-007-2026-10-29-p4-notifications-pwa.md)。以下路径均在 `/api/v1` 下，仅管理员 session；写请求继续强制精确 Origin，worker Bearer 不能访问。成功和错误均 `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`，错误只含固定安全码。GET 不要求 Origin，不开放 CORS。
+
+### 规则和通知
+
+- GET `/notification-rules` → `{items,nextCursor:null}`。规则为 `{id,name,enabled,taskIds,eventTypes,keywords,pushEnabled,createdAt,updatedAt}`。默认规则 enabled=true、全部任务、baseline/created/changed、keywords=[]、pushEnabled=false。taskIds=[] 表示全部；keywords 多个词按不区分大小写的任一词命中，匹配项目键、描述、受限 README 正文，不匹配时间/星数。
+- POST `/notification-rules` 接受 `{name,enabled?,taskIds?,eventTypes?,keywords?,pushEnabled?}` → 201 `{rule}`；PATCH `/notification-rules/:id` 接受这些可写字段的子集 → `{rule}`；DELETE → `{ok:true}`。拒绝其他字段。名字最长200，数组最多100项、每项最长200；eventTypes 只接收 baseline/created/changed。删空规则后重启不重建默认规则。
+- GET `/notifications?limit=&cursor=&unread=` → `{items,nextCursor}`，按创建序号倒序，limit 默认50最大200。unread 可省略、true 或 false，游标绑定该过滤。条目为 `{id,kind,title,body,taskId,runId,entityId,versionId,targetPath,createdAt,readAt,dedupeKey,matchedRuleIds,delivery}`，无 README 或订阅密钥。`delivery:{pending,retry,sending,accepted,failed,skipped}` 为设备计数。
+- GET `/notifications/:id` → `{notification}`（同上小型 DTO）；GET `/notifications/unread-count` → `{count}`。PATCH `/notifications/:id` 只接受 `{read:true}` → `{notification}`，重复不改原 readAt；POST `/notifications/read-all` 接受空体或 `{}` → `{count}`（本次修改数）。不存在返回404 `NOTIFICATION_NOT_FOUND`。
+- 业务目标固定为 `/runs?runId=:runId&entityId=:entityId&versionId=:versionId`；baseline 仅含 runId。打开原 run 的固定 submission/version，不使用 entity 最新版替换。测试通知目标 `/notifications`。通知 ID、run/version ID 全部由中心生成，不能提交任意外部路径。kind 为 baseline/created/changed/test，test 永不伪装业务事件。
+
+### 设备和测试
+
+- GET `/push/config` → `{configured,publicKey,enabled,reason}`，只返回公钥、安全配置码；不暴露私钥、subject 或密钥文件路径。
+- POST `/push/subscriptions` 接受 `{subscription:{endpoint,keys:{p256dh,auth},expirationTime?},deviceLabel?}` → 201 `{subscription:{id,deviceLabel,enabled,createdAt,updatedAt,owned}}`；GET → `{items,nextCursor:null}`，同样仅含元数据。deviceLabel 最长100，无控制字符。允许标准 HTTPS/443、无凭据/fragment 的明确 FCM/Mozilla/Apple 推送服务端点，验证 P-256 公钥点和16字节 auth，过期订阅不能新增投递；发送时 transport 再校验 DNS 与公开地址。
+- 设备归属当前登录 session（库内仅保存 session 摘要，不保存 Cookie）；列表含 owned，其他会话不能删除或发送测试。相同 endpoint 携带相同原 keys 可在重新登录后续绑新 session；仅拿 endpoint 而换 keys 返回409 `SUBSCRIPTION_CONFLICT`。新设备不会接收旧通知。
+- DELETE `/push/subscriptions/:id` → `{ok:true}`，仅 owned；清除 secret、停用设备、跳过尚未完成投递。同归属重复删除幂等。其他设备不变。
+- POST `/auth/logout` 可无体/`{}`，或 `{subscriptionId}`。提供 ID 时先校验本会话归属并解绑，再销毁 session；归属错误403且不会误删他机。不提供 ID 保持旧客户端兼容。浏览器自己的 unsubscribe 仍由 frontend 尝试，服务端不声称其一定成功。
+- POST `/push/test` **必须** `{subscriptionId}` 与 `Idempotency-Key` → 202 `{notification}`，仅计划选定的一个 owned 设备。相同 key+device 重放原通知，相同 key 换设备409 `IDEMPOTENCY_CONFLICT`；无 Idempotency-Key、缺字段或夹带 kind/title/业务事件字段均拒绝。禁用/未配置分别409 `PUSH_DISABLED`/`PUSH_NOT_CONFIGURED`；设备不存在404、非本会话403、停用409 `PUSH_NO_DEVICES`。不会默认广播到其他设备。
+- GET `/push/status` → `{enabled,healthy,running,lastTickAt,lastErrorCode,nextWakeAt,counts}`；counts 为上面的六类计数。enabled 表示全局已启用且配置完整，healthy 是循环本地健康，不表示外部服务或手机可达。网络错误仅固定诊断码，不让公开 `/health` 或站内 API 因 push 断网而失败。
+
+## P4 事务、Outbox 与关闭边界
+
+`notify-store.js` 独立维护 notification_rules、notifications、notification_outbox、push_subscriptions、push_deliveries、push_test_requests；notification_migrations 保存独立 P4 迁移标记，不改写 P2/P3 收据或回放历史 events，也不重置 P3 user_version。通知、规则匹配快照、设备计划与 submit 的版本/events/baseline/receipt/档案水位共用同一事务，任一步失败全回滚。首次 partial 无通知；首次 complete 只一条摘要；已有 baseline 后才提醒本次真正新建的版本。相同内容、rank/stars/observedAt 变化不发，A→B→A 保留新的回退版本。原收据优先重放，STALE 无业务通知。跨 task 使用首来源策略，version 事件归属固定为 versions.run_id 对应任务：onlyB 规则不会补发 A 先写、B 后提交同版本的 delta；B 自己首次完整基线仍可有独立 summary。baseline 的 task/scope 去重与 version ID 去重分开，首次 partial 不创建已通知标记。多规则同一版本只一条站内消息，保留命中 ID；站内记录不复制正文。
+
+每条通知都有 Outbox 记录，但只在事件时 global enabled+configured、已命中的 rule pushEnabled、设备当时存在有效才生成唯一 `(notificationId,subscriptionId)` 投递。以后启用 push/规则或注册设备均不补发历史。全局关闭或配置失效时，配置应用及重启会持久 skip 所有旧 pending/retry/sending；disabled 后台不会留旧计划待 reenable 重发。测试分支只需全局启用/已配置与选定有效设备，不依赖业务规则。发送前仅复核原来 push 授权的 rule IDs 是否仍至少一条 enabled+pushEnabled，不重算关键词/task/eventTypes 等新过滤。禁用/删除规则或注销设备会永久 skip 不再授权的 pending/retry/lease，重新启用不会复活这些记录。已交给网络的发送无法撤回，不能承诺注销会撤销已经接受的请求。
+
+`dispatcher.js` 单实例串行，每轮最多一条；短事务取得持久 lease 和 attempt，网络期间无 SQLite 事务。默认15秒网络上限、30秒 lease、空闲最多60秒兜底，入库/配置变化唤醒；本地循环异常有界退避。重启尊重未到期 lease，到期重领并累计 attempt。2xx 只标 accepted（推送服务接受），不改 readAt、不称手机展示成功。404/410 只清理该设备 secret；429/5xx/网络超时最多五次，指数退避并尊重最多一小时的 Retry-After；401/403/413 等永久失败保存固定诊断、不删正常设备、不无限重试。第五次 lease 若崩溃，到期直接 failed。成功已被外部接受但落库前崩溃可重复发送，稳定 notificationId、topic/tag 仅协助合并，语义为至少一次而非端到端 exactly-once。
+
+锁屏 payload 只有 `{notificationId,kind,title,body,targetPath,tag}`：通用标题/摘要与 `/notifications?id=:id` 安全路径，不带项目名、README、endpoint 或 keys。transport 使用稳定 notificationId 产生 topic。站内详情再取得业务目标，登录与跳转由 frontend 处理。
+
+`configuration(env)` 调用独立适配的 `loadPushConfiguration(env)`，`createServer` 使用 `createPushTransport(config)`；也支持注入 `pushConfig`、`pushTransport` 和 `dispatcherOptions` 供隔离测试。transport 接口为 async `send({subscription,payload,notificationId,signal})` → `{statusCode,headers}` 或抛固定 code/statusCode/headers；兼容已消毒 `safeRetryAfter` 秒。stop 立即停止 timer、abort sender，sender 即便不响应 signal 也由有界 race 收尾；不在停止后回写 DB，持久 lease 留待重启。close callback 在 sender 与 HTTP 关闭后才执行，自有 DB 此时才关闭；注入 DB 仍属调用者管理。
+
+### 本地测试与尚未验收
+
+`node --test apps/server/test/*.test.js`；P4 主要是 `test/notifications.test.js`（真实 HTTP、内存/临时文件 SQLite、合成设备和注入传输），另由适配 agent 的 `test/push-transport.test.js` 验证标准加密/配置/网络边界。通知测试覆盖 partial/baseline、多规则/过滤、跨任务、receipt/stale、A→B→A、升级不回放、事务回滚、分页/read、归属/metadata、logout、单设备 test 幂等、事件时设备计划、规则撤权、串行、重试/lease/restart、超时/关闭、禁用推送与安全 API headers。
+
+这些测试不会向外部推送端点发送，不操作已有预览或 userdata，不代表真实 GitHub、iPhone 安装/锁屏/点击已验证；真机、浏览器授权和用户 P3/P4 手工验收仍待用户执行。P5 暂停。

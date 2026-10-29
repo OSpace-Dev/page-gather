@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/web"],
+  "workspaces": ["apps/web", "apps/server"],
   "engines": { "node": ">=24.0.0 <25" },
   "scripts": {
-    "test": "node --test apps/worker/test/*.test.js apps/server/test/*.test.js apps/web/test/*.test.mjs scripts/dependencies.test.js",
+    "test": "node --test apps/worker/test/*.test.js apps/server/test/*.test.js apps/web/test/*.test.mjs scripts/dependencies.test.js scripts/vapid.test.js",
     "test:worker": "node --test apps/worker/test/*.test.js",
     "web:build": "npm run build --workspace apps/web",
     "server:start": "node apps/server/server.js",

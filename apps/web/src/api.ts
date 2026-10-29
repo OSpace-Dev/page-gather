@@ -30,10 +30,10 @@ export function page<T>(v: unknown, parse: (x: unknown) => T): Page<T> {
   return { items: r.items.map(parse), nextCursor: r.nextCursor as string | null ?? null }
 }
 export class ApiError extends Error { status: number; constructor(message: string, status = 0) { super(message); this.status = status } }
-const messages: Record<string, string> = { INVALID_CREDENTIALS: '用户名或密码错误，请重新登录。', INVALID_CONFIG: '任务参数不符合要求，请检查后重试。', INVALID_SCHEDULE: '每日计划时间或时区不符合服务端要求，请检查后重试。', RATE_LIMITED: '操作过于频繁，请稍后重试。', TASK_DISABLED: '请先启用任务。', INVALID_ORIGIN: '访问地址未获授权，请联系管理员。' }
+const messages: Record<string, string> = { NOTIFICATION_NOT_FOUND:'通知不存在或已不可访问，请返回列表刷新。', RULE_NOT_FOUND:'规则不存在，请刷新列表。', INVALID_RULE:'规则参数不符合服务端要求，请检查名称、任务、事件与关键词。', PUSH_DISABLED:'服务器推送已关闭；站内通知仍可用。', PUSH_NOT_CONFIGURED:'服务器未配置推送；站内通知仍可用。', PUSH_NO_DEVICES:'当前设备未启用订阅，请先主动订阅本机。', SUBSCRIPTION_NOT_FOUND:'本机设备订阅不存在，请重新登记本机后重试。', SUBSCRIPTION_NOT_OWNED:'此订阅不属于当前会话，请先重新登记本机。', SUBSCRIPTION_EXPIRED:'本机订阅已过期，请重新订阅。', INVALID_SUBSCRIPTION:'浏览器订阅格式不符合要求，请重新登记。', INVALID_SUBSCRIPTION_KEYS:'浏览器订阅密钥格式无效，请重新订阅。', INVALID_PUSH_ENDPOINT:'此推送服务端点不受支持，请检查浏览器支持情况。', IDEMPOTENCY_CONFLICT:'同一请求标识的内容不一致，请刷新后重新操作。', INVALID_CREDENTIALS: '用户名或密码错误，请重新登录。', INVALID_CONFIG: '任务参数不符合要求，请检查后重试。', INVALID_SCHEDULE: '每日计划时间或时区不符合服务端要求，请检查后重试。', RATE_LIMITED: '操作过于频繁，请稍后重试。', TASK_DISABLED: '请先启用任务。', INVALID_ORIGIN: '访问地址未获授权，请联系管理员。' }
 export async function api(path: string, method = 'GET', body?: unknown, key?: string): Promise<unknown> {
   let res: Response
-  try { res = await fetch(`/api/v1${path}`, { method, credentials: 'same-origin', headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(key ? { 'Idempotency-Key': key } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20000) }) }
+  try { res = await fetch(`/api/v1${path}`, { method, cache: 'no-store', credentials: 'same-origin', headers: { Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(key ? { 'Idempotency-Key': key } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20000) }) }
   catch { throw new ApiError('连接失败或请求超时，请检查网络后重试。') }
   let value: unknown
   try { value = await res.json() } catch { throw new ApiError('服务返回了无法识别的响应，请稍后重试。', res.status) }

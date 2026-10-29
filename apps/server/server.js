@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { Auth, configuration } from './auth.js';
 import { Store } from './store.js';
 import { Scheduler } from './scheduler.js';
+import { Dispatcher } from './dispatcher.js';
+import { createPushTransport, loadPushConfiguration } from './push-transport.js';
 import { plugins } from './registry.js';
 import { ApiError, check, object } from './errors.js';
 
@@ -30,10 +32,13 @@ async function body(req, optional = false) {
   check(object(parsed), 'INVALID_JSON',400); return parsed;
 }
 const pagination = url => ({ limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : 50, cursor: url.searchParams.get('cursor'), q: url.searchParams.get('q') ?? '', type: url.searchParams.get('type') ?? '' });
-export function createServer({ store, auth, schedulerOptions, ...options } = {}) {
+export function createServer({ store, auth, schedulerOptions, dispatcherOptions, pushConfig, pushTransport, env = process.env, ...options } = {}) {
   const ownedStore = !store;
-  auth ??= new Auth(options); store ??= new Store(options);
+  pushConfig ??= store?.notifications.config ?? loadPushConfiguration(env);
+  auth ??= new Auth(options); store ??= new Store({ ...options, pushConfig });
+  const notifications = store.notifications; notifications.configure(pushConfig);
   const scheduler = new Scheduler(store, schedulerOptions);
+  const dispatcher = new Dispatcher(notifications, pushTransport ?? createPushTransport(pushConfig), dispatcherOptions);
   const server = http.createServer(async (req, res) => {
     const requestId = randomUUID();
     const send = (status, value, headers = {}) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-request-id': requestId, ...headers }); res.end(status === 204 ? undefined : JSON.stringify(value)); };
@@ -60,10 +65,43 @@ export function createServer({ store, auth, schedulerOptions, ...options } = {})
       if (path === '/api/v1/auth/login' && method === 'POST') {
         const cookie = auth.login(req,await body(req)); return send(200, { user: { username: 'admin' } }, { 'set-cookie': cookie });
       }
-      auth.session(req);
+      const sessionId = auth.session(req);
       if (path === '/api/v1/scheduler' && method === 'GET') return send(200, scheduler.status());
       if (path === '/api/v1/auth/me' && method === 'GET') return send(200,{ user: { username: 'admin' } });
-      if (path === '/api/v1/auth/logout' && method === 'POST') return send(200,{ ok:true }, { 'set-cookie':auth.logout(req) });
+      if (path === '/api/v1/auth/logout' && method === 'POST') {
+        const input = await body(req, true);
+        check(Object.keys(input).every(k => k === 'subscriptionId'), 'INVALID_LOGOUT', 400);
+        if (input.subscriptionId !== undefined) notifications.removeDevice(input.subscriptionId, sessionId);
+        return send(200,{ ok:true }, { 'set-cookie':auth.logout(req) });
+      }
+      if (path === '/api/v1/notification-rules') {
+        if (method === 'GET') return send(200, notifications.rules());
+        if (method === 'POST') return send(201, { rule: notifications.createRule(await body(req)) });
+      }
+      const ruleMatch = path.match(/^\/api\/v1\/notification-rules\/([A-Za-z0-9_-]+)$/);
+      if (ruleMatch) {
+        if (method === 'PATCH') return send(200, { rule: notifications.patchRule(ruleMatch[1], await body(req)) });
+        if (method === 'DELETE') { notifications.deleteRule(ruleMatch[1]); return send(200, { ok: true }); }
+      }
+      if (path === '/api/v1/notifications' && method === 'GET') return send(200, notifications.list({ ...pagination(url), unread: url.searchParams.get('unread') }));
+      if (path === '/api/v1/notifications/unread-count' && method === 'GET') return send(200, notifications.unreadCount());
+      if (path === '/api/v1/notifications/read-all' && method === 'POST') {
+        const input = await body(req, true); check(!Object.keys(input).length, 'INVALID_READ', 400); return send(200, notifications.readAll());
+      }
+      const notificationMatch = path.match(/^\/api\/v1\/notifications\/([A-Za-z0-9_-]+)$/);
+      if (notificationMatch) {
+        if (method === 'GET') return send(200, { notification: notifications.view(notifications.notification(notificationMatch[1])) });
+        if (method === 'PATCH') return send(200, { notification: notifications.read(notificationMatch[1], await body(req)) });
+      }
+      if (path === '/api/v1/push/config' && method === 'GET') return send(200, notifications.configView());
+      if (path === '/api/v1/push/status' && method === 'GET') return send(200, dispatcher.status());
+      if (path === '/api/v1/push/subscriptions') {
+        if (method === 'GET') return send(200, notifications.devices(sessionId));
+        if (method === 'POST') return send(201, { subscription: notifications.registerDevice(await body(req), sessionId) });
+      }
+      const deviceMatch = path.match(/^\/api\/v1\/push\/subscriptions\/([A-Za-z0-9_-]+)$/);
+      if (deviceMatch && method === 'DELETE') { notifications.removeDevice(deviceMatch[1], sessionId); return send(200, { ok: true }); }
+      if (path === '/api/v1/push/test' && method === 'POST') return send(202, { notification: notifications.testPush(req.headers['idempotency-key'], await body(req), sessionId) });
       if (path === '/api/v1/plugins' && method === 'GET') return send(200,{ items: plugins, nextCursor:null });
       if (path === '/api/v1/tasks') {
         if (method === 'GET') return send(200,store.list('tasks',pagination(url)));
@@ -95,11 +133,18 @@ export function createServer({ store, auth, schedulerOptions, ...options } = {})
     }
   });
   server.requestTimeout = 30000; server.headersTimeout = 10000; server.keepAliveTimeout = 5000; server.maxHeadersCount = 100;
-  server.scheduler = scheduler;
-  const close = server.close.bind(server);
-  server.close = (...args) => { scheduler.stop(); return close(...args); };
-  server.on('close', () => { scheduler.stop(); if (ownedStore) store.close(); });
-  scheduler.start();
+  server.scheduler = scheduler; server.dispatcher = dispatcher;
+  const close = server.close.bind(server); let storeClosed = false;
+  server.close = callback => {
+    scheduler.stop(); const stopped = dispatcher.stop();
+    return close(error => {
+      void stopped.then(() => {
+        if (ownedStore && !storeClosed) { storeClosed = true; store.close(); }
+        callback?.(error);
+      });
+    });
+  };
+  scheduler.start(); dispatcher.start();
   return server;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
