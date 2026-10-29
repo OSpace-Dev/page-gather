@@ -63,10 +63,11 @@ diagnose_startup() {
 }
 "${compose[@]}" build browser-worker
 # 运行时镜像不包含完整仓库检查文件；以只读仓库挂载进行离线回归。
+# Worker镜像保持无npm运行依赖，阶段脚本仅跑worker回归；全仓P4套件在安装工作区依赖后执行。
 docker run --rm --init --network none --name "$project-regression" \
   --label "com.docker.compose.project=$project" \
   --mount "type=bind,source=$PWD,target=/workspace,readonly" --workdir /workspace \
-  --entrypoint sh "${project}-browser-worker" -c 'node scripts/derive-chrome-seccomp.js --check && npm run check:deps && npm test'
+  --entrypoint sh "${project}-browser-worker" -c 'node scripts/derive-chrome-seccomp.js --check && npm run check:deps && npm run test:worker'
 "${compose[@]}" up -d --no-build browser-worker
 id=$("${compose[@]}" ps -aq browser-worker)
 docker inspect "$id" | docker run --rm -i --network none --name "$project-security-inspect" \

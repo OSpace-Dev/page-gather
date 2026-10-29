@@ -1,7 +1,7 @@
 # 文档总导航
 
 > 更新日期：2026-10-29。按开发生命周期组织，阶段内迭代维护。
-> 当前基线：P0设计、P1–P3开发交付已完成，P4/P5未开始。服务器以后由用户部署，不阻塞开发。
+> 当前基线：P0设计、P1–P3开发交付已完成，P4开发交付完成，P3用户手工验收待办，P5自动签到暂停。服务器以后由用户部署，不阻塞开发。
 
 ## 先找执行计划
 
@@ -51,6 +51,7 @@ docs/
 | DES-004 | [流程插件与GitHub采集设计](02-design/DES-004-2026-10-25-plugin-workflows.md) |
 | DES-005 | [P2实施接口契约](02-design/DES-005-2026-10-25-p2-implementation-contract.md) |
 | DES-006 | [P3每日调度与稳定执行](02-design/DES-006-2026-10-29-p3-daily-scheduling.md) |
+| DES-007 | [P4通知、Outbox与PWA](02-design/DES-007-2026-10-29-p4-notifications-pwa.md) |
 
 ### 03 计划
 
@@ -69,6 +70,7 @@ docs/
 | RUN-004 | [部署目录持久化与迁移](04-delivery/RUN-004-2026-10-25-deployment-storage-migration.md) |
 | RUN-005 | [P2使用与开发预览](04-delivery/RUN-005-2026-10-25-p2-usage.md) |
 | RUN-006 | [P3每日计划使用说明](04-delivery/RUN-006-2026-10-29-p3-daily-scheduling-usage.md) |
+| RUN-007 | [P4通知与PWA使用说明](04-delivery/RUN-007-2026-10-29-p4-notifications-pwa-usage.md) |
 
 ### 05 验证
 
@@ -78,6 +80,7 @@ docs/
 | VER-002 | [P2开发验证记录](05-verification/VER-002-2026-10-25-p2-development-verification.md) | 完整链路实测与限制 |
 | VER-003 | [跨阶段验收场景矩阵](05-verification/VER-003-2026-10-29-cross-phase-acceptance-matrix.md) | 包含未来场景，不代表全部通过 |
 | VER-004 | [P3调度验证记录](05-verification/VER-004-2026-10-29-p3-scheduling-verification.md) | 本轮计划与真实scheduled run开发实测 |
+| VER-005 | [P4通知与PWA验证](05-verification/VER-005-2026-10-29-p4-notifications-pwa-verification.md) | 开发验收完成，用户真机待办单独记录 |
 
 ### 06 评审
 
@@ -89,6 +92,7 @@ docs/
 | REV-004 | [P2插件流程评审](06-reviews/REV-004-2026-10-25-p2-plugin-workflow-review.md) |
 | REV-005 | [P2完整链路评审](06-reviews/REV-005-2026-10-25-p2-integration-review.md) |
 | REV-006 | [P3每日调度评审](06-reviews/REV-006-2026-10-29-p3-scheduling-review.md) |
+| REV-007 | [P4通知与PWA评审](06-reviews/REV-007-2026-10-29-p4-notifications-pwa-review.md) |
 
 ### 07 图形
 
